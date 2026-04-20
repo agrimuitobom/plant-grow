@@ -1,0 +1,58 @@
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+@layer base {
+  html {
+    -webkit-text-size-adjust: 100%;
+    touch-action: manipulation;
+  }
+  body {
+    @apply text-slate-800 antialiased;
+    font-family: system-ui, -apple-system, 'Hiragino Sans', 'Noto Sans JP', sans-serif;
+  }
+  input[type='number'],
+  input[type='text'],
+  input[type='date'] {
+    @apply w-full rounded-xl border-2 border-slate-200 bg-white px-4 py-3 text-tap focus:border-leaf-500 focus:outline-none;
+  }
+}
+
+@layer components {
+  .btn {
+    @apply inline-flex items-center justify-center rounded-2xl px-6 py-4 text-tap font-semibold shadow-sm active:scale-[0.98] transition;
+    min-height: 56px;
+  }
+  .btn-primary {
+    @apply btn bg-leaf-500 text-white hover:bg-leaf-600;
+  }
+  .btn-secondary {
+    @apply btn bg-white text-leaf-700 border-2 border-leaf-500 hover:bg-leaf-50;
+  }
+  .btn-ghost {
+    @apply btn bg-slate-100 text-slate-700 hover:bg-slate-200;
+  }
+  .card {
+    @apply rounded-3xl bg-white p-6 shadow-md ring-1 ring-slate-100;
+  }
+}
+
+.react-calendar {
+  @apply w-full rounded-3xl border-0 bg-white p-4 shadow-md text-tap;
+}
+.react-calendar__tile--active {
+  @apply !bg-leaf-500 !text-white rounded-xl;
+}
+.react-calendar__tile--now {
+  @apply !bg-leaf-100 rounded-xl;
+}
+.react-calendar__tile {
+  @apply py-4 rounded-xl;
+}
+.has-record {
+  @apply relative;
+}
+.has-record::after {
+  content: '';
+  @apply absolute left-1/2 bottom-1 h-1.5 w-1.5 -translate-x-1/2 rounded-full bg-leaf-600;
+}
