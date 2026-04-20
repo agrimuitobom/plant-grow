@@ -2,6 +2,7 @@ import React, { useCallback, useEffect, useState } from 'react';
 import DatePickerCard from './components/DatePickerCard';
 import GrowthChart from './components/GrowthChart';
 import RecordForm from './components/RecordForm';
+import { authReady } from './lib/firebase';
 import { fetchAllRecords, toDateId } from './lib/records';
 
 export default function App() {
@@ -11,6 +12,7 @@ export default function App() {
 
   const reload = useCallback(async () => {
     try {
+      await authReady;
       const all = await fetchAllRecords();
       setRecords(all);
     } catch (e) {
