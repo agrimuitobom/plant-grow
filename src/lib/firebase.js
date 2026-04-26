@@ -1,5 +1,11 @@
 import { initializeApp } from 'firebase/app';
-import { getAuth, signInAnonymously, onAuthStateChanged } from 'firebase/auth';
+import {
+  GoogleAuthProvider,
+  getAuth,
+  onAuthStateChanged,
+  signInWithPopup,
+  signOut,
+} from 'firebase/auth';
 import { getFirestore } from 'firebase/firestore';
 
 // これらの値は「公開しても安全」な識別子 (アクセス制御は firestore.rules 側で実施)。
@@ -19,10 +25,17 @@ export const app = initializeApp(firebaseConfig);
 export const db = getFirestore(app);
 export const auth = getAuth(app);
 
-// ルールが「認証済みのみ」を要求するため、起動時に匿名サインインしておく。
-export const authReady = new Promise((resolve, reject) => {
-  onAuthStateChanged(auth, (user) => {
-    if (user) resolve(user);
-  });
-  signInAnonymously(auth).catch(reject);
-});
+const googleProvider = new GoogleAuthProvider();
+googleProvider.setCustomParameters({ prompt: 'select_account' });
+
+export function signInWithGoogle() {
+  return signInWithPopup(auth, googleProvider);
+}
+
+export function signOutUser() {
+  return signOut(auth);
+}
+
+export function subscribeToAuth(cb) {
+  return onAuthStateChanged(auth, cb);
+}

@@ -1,14 +1,15 @@
 rules_version = '2';
 
 // 植物生育管理アプリ用ルール。
-// - 匿名認証でサインインしている (request.auth != null) 利用者のみ読み書き可能。
+// - Google ログイン (匿名以外) でサインインしている利用者のみ読み書き可能。
 // - 書き込み時、ドキュメントのスキーマを軽くバリデーションする。
 // - 1レコード = 1日分。doc id は YYYY-MM-DD 形式のみ許可。
 service cloud.firestore {
   match /databases/{database}/documents {
 
     function isSignedIn() {
-      return request.auth != null;
+      return request.auth != null
+        && request.auth.token.firebase.sign_in_provider != 'anonymous';
     }
 
     function isValidDateId(id) {
