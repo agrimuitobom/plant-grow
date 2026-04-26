@@ -1,5 +1,18 @@
-import React, { useState } from 'react';
+import { useState } from 'react';
 import { deleteStrainPhoto, uploadStrainPhoto } from '../lib/storage';
+import type { StrainFormValue } from '../types';
+
+type StrainRowProps = {
+  strain: StrainFormValue;
+  uid: string;
+  dateId: string;
+  onChange: (next: StrainFormValue) => void;
+  onRemove: () => void;
+  canRemove: boolean;
+  onUploadingChange?: (isUploading: boolean) => void;
+};
+
+type PhotoStatus = 'idle' | 'uploading';
 
 export default function StrainRow({
   strain,
@@ -9,20 +22,21 @@ export default function StrainRow({
   onRemove,
   canRemove,
   onUploadingChange,
-}) {
-  const [photoStatus, setPhotoStatus] = useState('idle');
-  const [photoError, setPhotoError] = useState(null);
+}: StrainRowProps) {
+  const [photoStatus, setPhotoStatus] = useState<PhotoStatus>('idle');
+  const [photoError, setPhotoError] = useState<string | null>(null);
 
-  const update = (key, value) => onChange({ ...strain, [key]: value });
+  const update = <K extends keyof StrainFormValue>(key: K, value: StrainFormValue[K]) =>
+    onChange({ ...strain, [key]: value });
 
-  const toNum = (v) => (v === '' ? '' : Number(v));
+  const toNum = (v: string): number | '' => (v === '' ? '' : Number(v));
 
-  const setUploading = (v) => {
+  const setUploading = (v: boolean) => {
     setPhotoStatus(v ? 'uploading' : 'idle');
     onUploadingChange?.(v);
   };
 
-  const handlePickPhoto = async (e) => {
+  const handlePickPhoto = async (e: React.ChangeEvent<HTMLInputElement>) => {
     const file = e.target.files?.[0];
     e.target.value = '';
     if (!file) return;
@@ -41,13 +55,13 @@ export default function StrainRow({
         deleteStrainPhoto(previousPath).catch(() => {});
       }
     } catch (err) {
-      setPhotoError(err.message);
+      setPhotoError(err instanceof Error ? err.message : String(err));
     } finally {
       setUploading(false);
     }
   };
 
-  const handleRemovePhoto = async () => {
+  const handleRemovePhoto = () => {
     const path = strain.photoPath;
     onChange({ ...strain, photoPath: null, photoUrl: null });
     if (path) {

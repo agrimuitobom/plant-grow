@@ -1,8 +1,17 @@
-import React from 'react';
 import Calendar from 'react-calendar';
 import { toDateId } from '../lib/records';
 
-export default function DatePickerCard({ value, onChange, recordedDates = [] }) {
+type DatePickerCardProps = {
+  value: string;
+  onChange: (dateId: string) => void;
+  recordedDates?: string[];
+};
+
+export default function DatePickerCard({
+  value,
+  onChange,
+  recordedDates = [],
+}: DatePickerCardProps) {
   const recorded = new Set(recordedDates);
 
   return (
@@ -18,7 +27,11 @@ export default function DatePickerCard({ value, onChange, recordedDates = [] }) 
       </div>
       <Calendar
         value={new Date(value)}
-        onChange={(d) => onChange(toDateId(d))}
+        onChange={(d) => {
+          // react-calendar の onChange は Value (Date | [Date, Date] | null) を返す。
+          // 単一選択モードでは Date が来るが、念のため絞り込む。
+          if (d instanceof Date) onChange(toDateId(d));
+        }}
         locale="ja-JP"
         calendarType="gregory"
         tileClassName={({ date, view }) => {

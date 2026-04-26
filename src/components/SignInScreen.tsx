@@ -1,9 +1,11 @@
-import React, { useState } from 'react';
+import { useState } from 'react';
 import { signInWithGoogle } from '../lib/firebase';
 
+type Status = 'idle' | 'loading' | 'error';
+
 export default function SignInScreen() {
-  const [status, setStatus] = useState('idle');
-  const [error, setError] = useState(null);
+  const [status, setStatus] = useState<Status>('idle');
+  const [error, setError] = useState<string | null>(null);
 
   const handleSignIn = async () => {
     setStatus('loading');
@@ -11,11 +13,12 @@ export default function SignInScreen() {
     try {
       await signInWithGoogle();
     } catch (e) {
-      if (e?.code === 'auth/popup-closed-by-user' || e?.code === 'auth/cancelled-popup-request') {
+      const code = (e as { code?: string })?.code;
+      if (code === 'auth/popup-closed-by-user' || code === 'auth/cancelled-popup-request') {
         setStatus('idle');
         return;
       }
-      setError(e.message);
+      setError(e instanceof Error ? e.message : String(e));
       setStatus('error');
     }
   };

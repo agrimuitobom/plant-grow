@@ -8,15 +8,17 @@ import {
   serverTimestamp,
   setDoc,
 } from 'firebase/firestore';
+import type { User } from 'firebase/auth';
 import { db, CLASS_ID } from './firebase';
 import { deleteStrainPhoto } from './storage';
+import type { Averages, RecordDoc, Strain, StrainFormValue } from '../types';
 
 /**
  * Firestore schema (per-student)
  * --------------------------------------------------------------
  * classes/{classId}/students/{uid}/records/{YYYY-MM-DD}
  *   date:           "2026-04-20"           // doc id と同値。クエリ用に重複保持
- *   strains:        [{ id, name, height, leafCount, photoPath?, photoUrl? }]
+ *   strains:        Strain[]               // 個別株。型は src/types.ts を参照
  *   averages:       { height, leafCount }  // 入力時に算出
  *   createdAt:      Timestamp              // 新規作成時のみ
  *   updatedAt:      Timestamp
@@ -31,24 +33,23 @@ import { deleteStrainPhoto } from './storage';
  *   - createdBy / updatedBy はパスから自明だが、後でクラス横断ビューを作る時に役立つので保存。
  */
 
-export const recordsCol = (uid) =>
+export const recordsCol = (uid: string) =>
   collection(db, 'classes', CLASS_ID, 'students', uid, 'records');
-export const recordDoc = (uid, dateId) =>
+export const recordDoc = (uid: string, dateId: string) =>
   doc(db, 'classes', CLASS_ID, 'students', uid, 'records', dateId);
 
-export function calcAverages(strains) {
-  const valid = strains.filter(
-    (s) => Number.isFinite(s.height) || Number.isFinite(s.leafCount)
-  );
-  const avg = (key) => {
-    const nums = valid.map((s) => s[key]).filter((v) => Number.isFinite(v));
+export function calcAverages(strains: Pick<Strain, 'height' | 'leafCount'>[]): Averages {
+  const avg = (key: 'height' | 'leafCount'): number | null => {
+    const nums = strains
+      .map((s) => s[key])
+      .filter((v): v is number => Number.isFinite(v as number));
     if (!nums.length) return null;
     return Number((nums.reduce((a, b) => a + b, 0) / nums.length).toFixed(2));
   };
   return { height: avg('height'), leafCount: avg('leafCount') };
 }
 
-export function toDateId(date) {
+export function toDateId(date: Date | string | number): string {
   const d = date instanceof Date ? date : new Date(date);
   const y = d.getFullYear();
   const m = String(d.getMonth() + 1).padStart(2, '0');
@@ -56,22 +57,38 @@ export function toDateId(date) {
   return `${y}-${m}-${day}`;
 }
 
-export async function fetchRecord(uid, dateId) {
+export async function fetchRecord(uid: string, dateId: string): Promise<RecordDoc | null> {
   const snap = await getDoc(recordDoc(uid, dateId));
-  return snap.exists() ? snap.data() : null;
+  return snap.exists() ? (snap.data() as RecordDoc) : null;
 }
 
-export async function fetchAllRecords(uid) {
+export async function fetchAllRecords(uid: string): Promise<RecordDoc[]> {
   const q = query(recordsCol(uid), orderBy('date', 'asc'));
   const snap = await getDocs(q);
-  return snap.docs.map((d) => d.data());
+  return snap.docs.map((d) => d.data() as RecordDoc);
 }
 
-const photoPathsOf = (strains) =>
-  (strains ?? []).map((s) => s?.photoPath).filter(Boolean);
+const photoPathsOf = (strains: Strain[] | undefined): string[] =>
+  (strains ?? []).map((s) => s?.photoPath).filter((p): p is string => Boolean(p));
 
-export async function saveRecord({ user, dateId, strains }) {
-  const cleanStrains = strains.map((s) => ({
+export type SaveRecordArgs = {
+  user: Pick<User, 'uid' | 'displayName' | 'email'>;
+  dateId: string;
+  strains: StrainFormValue[];
+};
+
+export type SaveRecordResult = {
+  date: string;
+  strains: Strain[];
+  averages: Averages;
+};
+
+export async function saveRecord({
+  user,
+  dateId,
+  strains,
+}: SaveRecordArgs): Promise<SaveRecordResult> {
+  const cleanStrains: Strain[] = strains.map((s) => ({
     id: s.id,
     name: s.name?.trim() || s.id,
     height: Number.isFinite(Number(s.height)) ? Number(s.height) : null,
@@ -91,9 +108,11 @@ export async function saveRecord({ user, dateId, strains }) {
   // - setDoc: オフライン時は writePendingQueue に積まれ、復帰後に同期される
   // - createdAt / createdBy は新規作成判定の時だけ含める
   const snap = await getDoc(ref);
-  const previousPaths = snap.exists() ? photoPathsOf(snap.data().strains) : [];
+  const previousPaths = snap.exists()
+    ? photoPathsOf((snap.data() as RecordDoc).strains)
+    : [];
 
-  const payload = {
+  const payload: Record<string, unknown> = {
     date: dateId,
     strains: cleanStrains,
     averages,

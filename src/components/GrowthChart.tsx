@@ -1,4 +1,3 @@
-import React from 'react';
 import {
   CartesianGrid,
   Legend,
@@ -9,8 +8,13 @@ import {
   XAxis,
   YAxis,
 } from 'recharts';
+import type { RecordDoc } from '../types';
 
-export default function GrowthChart({ records }) {
+type GrowthChartProps = {
+  records: RecordDoc[];
+};
+
+export default function GrowthChart({ records }: GrowthChartProps) {
   const data = records
     .filter((r) => r.averages)
     .map((r) => ({

@@ -1,6 +1,7 @@
 import { initializeApp } from 'firebase/app';
 import {
   GoogleAuthProvider,
+  type User,
   getAuth,
   onAuthStateChanged,
   signInWithPopup,
@@ -24,7 +25,7 @@ const firebaseConfig = {
   appId: import.meta.env.VITE_FIREBASE_APP_ID,
 };
 
-export const CLASS_ID = import.meta.env.VITE_CLASS_ID || 'class-demo';
+export const CLASS_ID: string = import.meta.env.VITE_CLASS_ID || 'class-demo';
 
 export const app = initializeApp(firebaseConfig);
 // IndexedDB ベースの永続キャッシュを有効化。授業中に Wi-Fi が切れても
@@ -47,6 +48,6 @@ export function signOutUser() {
   return signOut(auth);
 }
 
-export function subscribeToAuth(cb) {
+export function subscribeToAuth(cb: (user: User | null) => void) {
   return onAuthStateChanged(auth, cb);
 }
