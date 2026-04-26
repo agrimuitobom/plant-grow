@@ -83,8 +83,11 @@ firebase deploy
   `request.auth.uid == userId` を要求しているので、他人のレコードや写真には触れません。
 - レコードに `createdBy` / `updatedBy` を保存して、後からのクラス横断ビューや監査に備えています。
 - `firestore.rules` / `storage.rules` の双方で匿名認証を明示的に拒否しています。
-- 校内利用に限定したい場合は、Rules でメールドメインを判定する条件
-  （例: `request.auth.token.email.matches('.*@example-school\\.ac\\.jp$')`）を追加してください。
+- 校内利用に限定したい場合は環境変数 `VITE_ALLOWED_EMAIL_DOMAINS` を設定すると、
+  許可ドメイン以外のメールでログインしたユーザは即サインアウトされます
+  （例: `VITE_ALLOWED_EMAIL_DOMAINS=example-school.ac.jp,example-school.jp`）。
+  さらに厳格にしたい場合は Rules 側でも `request.auth.token.email.matches('.*@example-school\\.ac\\.jp$')` を追加してください
+  （クライアント側の制限はバイパスされ得るため、機微なクラスではサーバ側でも要重ね掛け）。
 
 ## Firestore スキーマ
 
