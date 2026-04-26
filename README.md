@@ -75,6 +75,7 @@ firebase deploy
 |----|------|-----------|
 | Firebase Auth | **Google ログイン** したユーザー | 一意の uid と displayName / email を取得 |
 | Firestore Rules | ログイン済み生徒 (匿名拒否) | **自分の** `classes/{classId}/students/{uid}/records/{YYYY-MM-DD}` の read / create / update |
+| Firestore Rules | 教員 (`classes/{classId}/teachers/{uid}` に登録) | **同じクラスの全生徒** のレコード・名簿を read（書き込みは不可） |
 | Storage Rules | ログイン済み生徒 | **自分の** `classes/{classId}/students/{uid}/photos/{dateId}/*` の read / write / delete<br>1ファイル 5MB 以下 / `image/*` のみ |
 | Firestore | 誰も | delete はできない（誤操作防止） |
 
@@ -107,6 +108,31 @@ classes/{classId}/students/{uid}/records/{YYYY-MM-DD}
 - 生徒は **自分のサブツリーしか read / write できない**（Rules でパスの uid と request.auth.uid の一致を要求）。
 - 旧スキーマ `classes/{classId}/records/{date}` (per-day shared) のデータは破壊的変更で
   使われなくなります。学校導入前なら問題なし、運用中だった場合は手動移行が必要。
+
+### 教員ロール / クラス共有
+
+```
+classes/{classId}/teachers/{uid}             // 教員ロール (Console から手動で seed)
+  uid:           uid
+  displayName:   表示名
+  email:         (任意)
+
+classes/{classId}/students/{uid}             // 生徒名簿 (記録保存時に自動 upsert)
+  uid:           uid
+  displayName:   表示名
+  email:         email
+  lastRecordedAt: Timestamp
+```
+
+- 生徒が記録を保存すると `students/{uid}` が自動 upsert され、教員ダッシュボードの一覧に出ます。
+- **教員アカウントの追加手順** (Firebase Console):
+  1. Firestore Database → `classes` → 該当 classId → `teachers` サブコレクションを開く
+  2. 「ドキュメントを追加」でドキュメント ID にその先生の **Firebase Auth uid** を指定
+     （uid は Authentication タブで Google ログイン後のユーザーから確認できる）
+  3. フィールド `displayName` (string) に表示名を入れて保存
+- アプリ側では教員ログイン時に「クラスを見る／自分の記録」のタブが表示され、
+  クラスの生徒一覧から児童を選んで成長グラフ・記録一覧・写真アルバム・CSV を
+  read-only で閲覧できます。教員でも他生徒の記録を編集することはできません (Rules で禁止)。
 
 ## Storage スキーマ
 

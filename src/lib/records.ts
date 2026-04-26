@@ -37,6 +37,8 @@ export const recordsCol = (uid: string) =>
   collection(db, 'classes', CLASS_ID, 'students', uid, 'records');
 export const recordDoc = (uid: string, dateId: string) =>
   doc(db, 'classes', CLASS_ID, 'students', uid, 'records', dateId);
+export const rosterDoc = (uid: string) =>
+  doc(db, 'classes', CLASS_ID, 'students', uid);
 
 export function calcAverages(strains: Pick<Strain, 'height' | 'leafCount'>[]): Averages {
   const avg = (key: 'height' | 'leafCount'): number | null => {
@@ -90,6 +92,8 @@ export async function saveRecord({
 }: SaveRecordArgs): Promise<SaveRecordResult> {
   const cleanStrains: Strain[] = strains.map((s) => ({
     id: s.id,
+    // 品目は表示・絞り込みのキー。トリムして 40 字まで。空文字も許容 (= 未分類)。
+    category: typeof s.category === 'string' ? s.category.trim().slice(0, 40) : '',
     name: s.name?.trim() || s.id,
     height: Number.isFinite(Number(s.height)) ? Number(s.height) : null,
     leafCount: Number.isFinite(Number(s.leafCount)) ? Number(s.leafCount) : null,
@@ -126,6 +130,19 @@ export async function saveRecord({
     payload.createdByName = displayName;
   }
   await setDoc(ref, payload, { merge: true });
+
+  // 名簿を upsert。教員ダッシュボードで生徒一覧を作るのに使う。
+  // 失敗しても記録自体は保存できているので、ここの失敗は握りつぶす。
+  await setDoc(
+    rosterDoc(user.uid),
+    {
+      uid: user.uid,
+      displayName,
+      email: user.email ?? '',
+      lastRecordedAt: serverTimestamp(),
+    },
+    { merge: true }
+  ).catch(() => {});
 
   // 参照されなくなった写真は削除して Storage を肥大化させない。
   // Storage はオフラインキューを持たないので、ここはネットがある時しか動かない。失敗は許容。

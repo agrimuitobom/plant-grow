@@ -7,6 +7,8 @@ import type { FieldValue, Timestamp } from 'firebase/firestore';
  */
 export type StrainFormValue = {
   id: string;
+  /** 品目 (トマト / ナス など)。空文字は「未分類」として扱う。 */
+  category: string;
   name: string;
   height: number | '';
   leafCount: number | '';
@@ -18,6 +20,8 @@ export type StrainFormValue = {
 /** Firestore に保存される株データ。 */
 export type Strain = {
   id: string;
+  /** 品目 (トマト / ナス など)。古いレコードには存在しないので読み出し時は ?? '' で扱う。 */
+  category?: string;
   name: string;
   height: number | null;
   leafCount: number | null;
@@ -46,6 +50,24 @@ export type RecordDoc = {
   createdByName?: string;
   updatedBy: string;
   updatedByName: string;
+};
+
+/**
+ * クラス名簿エントリ。生徒が初めて記録を保存した時に upsert される。
+ * 教員ダッシュボードで生徒一覧を作るためのインデックスとして使う。
+ */
+export type RosterEntry = {
+  uid: string;
+  displayName: string;
+  email: string;
+  lastRecordedAt?: Timestamp | FieldValue;
+};
+
+/** 教員ドキュメント (Firebase Console から手動で追加する運用)。 */
+export type TeacherProfile = {
+  uid: string;
+  displayName: string;
+  email?: string;
 };
 
 export type ToastTone = 'success' | 'error' | 'info';

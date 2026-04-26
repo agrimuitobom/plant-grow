@@ -4,6 +4,8 @@ rules_version = '2';
 // - Google ログイン (匿名以外) でサインインしている利用者のみ読み書き可能。
 // - 書き込み時、ドキュメントのスキーマを軽くバリデーションする。
 // - 1レコード = 1日分。doc id は YYYY-MM-DD 形式のみ許可。
+// - 教員 (classes/{classId}/teachers/{uid}) は同じクラスの全生徒を読み取りできる。
+//   教員ドキュメントは Firebase Console から手動で追加する運用。
 service cloud.firestore {
   match /databases/{database}/documents {
 
@@ -34,10 +36,33 @@ service cloud.firestore {
         && data.updatedBy == userId;
     }
 
-    // 各生徒は classes/{classId}/students/{uid}/records/{YYYY-MM-DD} の自分の領域だけ R/W 可能。
+    // 教員ロールの判定。exists() は Rules を再帰的に評価しないので O(1)。
+    function isTeacher(classId) {
+      return isSignedIn()
+        && exists(/databases/$(database)/documents/classes/$(classId)/teachers/$(request.auth.uid));
+    }
+
+    // 教員ドキュメント (Firebase Console から手動で seed)。
+    // クライアントは「自分が教員か」を判定するために read だけ許可する。
+    match /classes/{classId}/teachers/{teacherId} {
+      allow read: if isSignedIn();
+      allow write: if false;
+    }
+
+    // クラス名簿。生徒は自分のエントリだけ upsert でき、
+    // 同じクラスの教員は全員分を一覧できる。
+    match /classes/{classId}/students/{userId} {
+      allow read: if isOwner(userId) || isTeacher(classId);
+      allow create, update: if isOwner(userId)
+        && request.resource.data.uid == userId
+        && request.resource.data.keys().hasAll(['uid', 'displayName']);
+      allow delete: if false;
+    }
+
+    // 各生徒は自分の領域だけ R/W 可能。教員は read だけ可能 (書き込みは本人限定)。
     // 監査用に createdBy / updatedBy を記録する (パスの uid と一致を強制)。
     match /classes/{classId}/students/{userId}/records/{dateId} {
-      allow read: if isOwner(userId);
+      allow read: if isOwner(userId) || isTeacher(classId);
       allow create, update: if isOwner(userId)
         && isValidDateId(dateId)
         && isValidRecord(request.resource.data)
