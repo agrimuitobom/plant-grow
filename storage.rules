@@ -1,0 +1,28 @@
+rules_version = '2';
+
+// 植物生育管理アプリの写真用ルール。
+// - Google ログイン (匿名以外) のみ読み書き可。
+// - 1ファイルあたり 5MB 以下、image/* のみ。
+// - クライアントは 1080px 幅 / JPEG quality 0.8 に圧縮済みの想定。
+service firebase.storage {
+  match /b/{bucket}/o {
+
+    function isSignedIn() {
+      return request.auth != null
+        && request.auth.token.firebase.sign_in_provider != 'anonymous';
+    }
+
+    match /classes/{classId}/photos/{dateId}/{fileName} {
+      allow read: if isSignedIn();
+      allow write: if isSignedIn()
+        && request.resource.size < 5 * 1024 * 1024
+        && request.resource.contentType.matches('image/.*');
+      allow delete: if isSignedIn();
+    }
+
+    // それ以外は全拒否
+    match /{allPaths=**} {
+      allow read, write: if false;
+    }
+  }
+}

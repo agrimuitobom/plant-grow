@@ -7,6 +7,7 @@ import {
   signOut,
 } from 'firebase/auth';
 import { getFirestore } from 'firebase/firestore';
+import { getStorage } from 'firebase/storage';
 
 // これらの値は「公開しても安全」な識別子 (アクセス制御は firestore.rules 側で実施)。
 // ローカルでは .env.local、CI/本番では GitHub Actions の Secrets から注入される。
@@ -24,6 +25,7 @@ export const CLASS_ID = import.meta.env.VITE_CLASS_ID || 'class-demo';
 export const app = initializeApp(firebaseConfig);
 export const db = getFirestore(app);
 export const auth = getAuth(app);
+export const storage = getStorage(app);
 
 const googleProvider = new GoogleAuthProvider();
 googleProvider.setCustomParameters({ prompt: 'select_account' });

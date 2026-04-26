@@ -1,9 +1,57 @@
-import React from 'react';
+import React, { useState } from 'react';
+import { deleteStrainPhoto, uploadStrainPhoto } from '../lib/storage';
 
-export default function StrainRow({ strain, onChange, onRemove, canRemove }) {
+export default function StrainRow({
+  strain,
+  dateId,
+  onChange,
+  onRemove,
+  canRemove,
+  onUploadingChange,
+}) {
+  const [photoStatus, setPhotoStatus] = useState('idle');
+  const [photoError, setPhotoError] = useState(null);
+
   const update = (key, value) => onChange({ ...strain, [key]: value });
 
   const toNum = (v) => (v === '' ? '' : Number(v));
+
+  const setUploading = (v) => {
+    setPhotoStatus(v ? 'uploading' : 'idle');
+    onUploadingChange?.(v);
+  };
+
+  const handlePickPhoto = async (e) => {
+    const file = e.target.files?.[0];
+    e.target.value = '';
+    if (!file) return;
+    setPhotoError(null);
+    setUploading(true);
+    const previousPath = strain.photoPath;
+    try {
+      const { photoPath, photoUrl } = await uploadStrainPhoto({
+        dateId,
+        strainId: strain.id,
+        file,
+      });
+      onChange({ ...strain, photoPath, photoUrl });
+      if (previousPath && previousPath !== photoPath) {
+        deleteStrainPhoto(previousPath).catch(() => {});
+      }
+    } catch (err) {
+      setPhotoError(err.message);
+    } finally {
+      setUploading(false);
+    }
+  };
+
+  const handleRemovePhoto = async () => {
+    const path = strain.photoPath;
+    onChange({ ...strain, photoPath: null, photoUrl: null });
+    if (path) {
+      deleteStrainPhoto(path).catch(() => {});
+    }
+  };
 
   return (
     <div className="card flex flex-col gap-4 md:flex-row md:items-end">
@@ -42,6 +90,50 @@ export default function StrainRow({ strain, onChange, onRemove, canRemove }) {
           onChange={(e) => update('leafCount', toNum(e.target.value))}
           placeholder="例: 6"
         />
+      </div>
+
+      <div className="md:w-40">
+        <label className="block text-sm font-medium text-slate-500">写真</label>
+        {strain.photoUrl ? (
+          <div className="mt-1 flex items-center gap-2">
+            <a href={strain.photoUrl} target="_blank" rel="noreferrer" className="block">
+              <img
+                src={strain.photoUrl}
+                alt={`${strain.name}の写真`}
+                className="h-16 w-16 rounded-xl object-cover ring-1 ring-slate-200"
+              />
+            </a>
+            <button
+              type="button"
+              onClick={handleRemovePhoto}
+              className="text-sm text-red-600 underline"
+              aria-label={`${strain.name}の写真を削除`}
+            >
+              削除
+            </button>
+          </div>
+        ) : (
+          <label
+            className={`mt-1 inline-flex h-16 w-full cursor-pointer items-center justify-center rounded-xl border-2 border-dashed border-slate-300 px-2 text-sm text-slate-500 hover:border-leaf-500 hover:text-leaf-700 ${
+              photoStatus === 'uploading' ? 'pointer-events-none opacity-60' : ''
+            }`}
+          >
+            {photoStatus === 'uploading' ? 'アップロード中…' : '＋ 撮影 / 選択'}
+            <input
+              type="file"
+              accept="image/*"
+              capture="environment"
+              className="hidden"
+              onChange={handlePickPhoto}
+              disabled={photoStatus === 'uploading'}
+            />
+          </label>
+        )}
+        {photoError && (
+          <p role="alert" className="mt-1 text-xs text-red-600">
+            {photoError}
+          </p>
+        )}
       </div>
 
       <button

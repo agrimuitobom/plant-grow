@@ -7,6 +7,8 @@ const emptyStrain = (index) => ({
   name: `${String.fromCharCode(65 + index)}株`,
   height: '',
   leafCount: '',
+  photoPath: null,
+  photoUrl: null,
 });
 
 const DEFAULT_STRAINS = [emptyStrain(0), emptyStrain(1), emptyStrain(2)];
@@ -15,6 +17,7 @@ export default function RecordForm({ dateId, onSaved }) {
   const [strains, setStrains] = useState(DEFAULT_STRAINS);
   const [status, setStatus] = useState('idle');
   const [error, setError] = useState(null);
+  const [uploadingCount, setUploadingCount] = useState(0);
 
   useEffect(() => {
     let cancelled = false;
@@ -29,6 +32,8 @@ export default function RecordForm({ dateId, onSaved }) {
               name: s.name ?? s.id,
               height: s.height ?? '',
               leafCount: s.leafCount ?? '',
+              photoPath: s.photoPath ?? null,
+              photoUrl: s.photoUrl ?? null,
             }))
           );
         } else {
@@ -45,6 +50,10 @@ export default function RecordForm({ dateId, onSaved }) {
       cancelled = true;
     };
   }, [dateId]);
+
+  const handleUploadingChange = (isUploading) => {
+    setUploadingCount((n) => Math.max(0, n + (isUploading ? 1 : -1)));
+  };
 
   const averages = useMemo(() => {
     const parsed = strains.map((s) => ({
@@ -96,9 +105,11 @@ export default function RecordForm({ dateId, onSaved }) {
           <StrainRow
             key={`${s.id}-${i}`}
             strain={s}
+            dateId={dateId}
             onChange={(next) => updateStrain(i, next)}
             onRemove={() => removeStrain(i)}
             canRemove={strains.length > 1}
+            onUploadingChange={handleUploadingChange}
           />
         ))}
       </div>
@@ -107,8 +118,18 @@ export default function RecordForm({ dateId, onSaved }) {
         <button type="button" onClick={addStrain} className="btn-secondary">
           ＋ 株を追加
         </button>
-        <button type="submit" className="btn-primary flex-1" disabled={status === 'saving'}>
-          {status === 'saving' ? '保存中…' : status === 'saved' ? '保存しました ✓' : '保存する'}
+        <button
+          type="submit"
+          className="btn-primary flex-1"
+          disabled={status === 'saving' || uploadingCount > 0}
+        >
+          {uploadingCount > 0
+            ? '写真アップロード中…'
+            : status === 'saving'
+              ? '保存中…'
+              : status === 'saved'
+                ? '保存しました ✓'
+                : '保存する'}
         </button>
       </div>
 

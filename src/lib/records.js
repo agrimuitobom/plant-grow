@@ -9,13 +9,14 @@ import {
   serverTimestamp,
 } from 'firebase/firestore';
 import { db, CLASS_ID } from './firebase';
+import { deleteStrainPhoto } from './storage';
 
 /**
  * Firestore schema
  * --------------------------------------------------------------
  * classes/{classId}/records/{YYYY-MM-DD}
  *   date:       "2026-04-20"           // doc id と同値。クエリ用に重複保持
- *   strains:    [{ id, name, height, leafCount }]
+ *   strains:    [{ id, name, height, leafCount, photoPath?, photoUrl? }]
  *   averages:   { height, leafCount }  // 入力時に算出
  *   createdAt:  Timestamp
  *   updatedAt:  Timestamp
@@ -61,18 +62,25 @@ export async function fetchAllRecords() {
   return snap.docs.map((d) => d.data());
 }
 
+const photoPathsOf = (strains) =>
+  (strains ?? []).map((s) => s?.photoPath).filter(Boolean);
+
 export async function saveRecord({ dateId, strains }) {
   const cleanStrains = strains.map((s) => ({
     id: s.id,
     name: s.name?.trim() || s.id,
     height: Number.isFinite(Number(s.height)) ? Number(s.height) : null,
     leafCount: Number.isFinite(Number(s.leafCount)) ? Number(s.leafCount) : null,
+    photoPath: s.photoPath ?? null,
+    photoUrl: s.photoUrl ?? null,
   }));
   const averages = calcAverages(cleanStrains);
   const ref = recordDoc(dateId);
+  let previousPaths = [];
   // createdAt は新規作成時のみ書き込み、更新時は updatedAt のみ差し替える。
   await runTransaction(db, async (tx) => {
     const snap = await tx.get(ref);
+    previousPaths = snap.exists() ? photoPathsOf(snap.data().strains) : [];
     const payload = {
       date: dateId,
       strains: cleanStrains,
@@ -85,5 +93,12 @@ export async function saveRecord({ dateId, strains }) {
       tx.set(ref, { ...payload, createdAt: serverTimestamp() });
     }
   });
+
+  // 直前のレコードに含まれていたが、新しい strains には残っていない写真は孤立する。
+  // Storage の無料枠を圧迫しないよう保存後に掃除する (失敗してもユーザーには影響しない)。
+  const keptPaths = new Set(photoPathsOf(cleanStrains));
+  const orphans = previousPaths.filter((p) => !keptPaths.has(p));
+  await Promise.all(orphans.map((p) => deleteStrainPhoto(p).catch(() => {})));
+
   return { date: dateId, strains: cleanStrains, averages };
 }
