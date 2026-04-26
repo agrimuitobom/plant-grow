@@ -10,6 +10,8 @@ type StrainRowProps = {
   onRemove: () => void;
   canRemove: boolean;
   onUploadingChange?: (isUploading: boolean) => void;
+  /** 過去に使われた品目候補 (datalist によるサジェスト用)。 */
+  categorySuggestions?: string[];
 };
 
 type PhotoStatus = 'idle' | 'uploading';
@@ -22,7 +24,10 @@ export default function StrainRow({
   onRemove,
   canRemove,
   onUploadingChange,
+  categorySuggestions = [],
 }: StrainRowProps) {
+  // 同一フォーム内に複数 StrainRow が並んでも datalist の id が衝突しないように株 id を含める。
+  const categoryListId = `cat-suggest-${strain.id}`;
   const [photoStatus, setPhotoStatus] = useState<PhotoStatus>('idle');
   const [photoError, setPhotoError] = useState<string | null>(null);
 
@@ -75,6 +80,25 @@ export default function StrainRow({
     <div className="card flex flex-col gap-4">
       <div className="flex flex-col gap-4 md:flex-row md:items-end">
         <div className="md:w-32">
+          <label className="block text-sm font-medium text-slate-500">品目</label>
+          <input
+            type="text"
+            inputMode="text"
+            value={strain.category}
+            list={categoryListId}
+            onChange={(e) => update('category', e.target.value)}
+            placeholder="例: トマト"
+          />
+          {categorySuggestions.length > 0 && (
+            <datalist id={categoryListId}>
+              {categorySuggestions.map((c) => (
+                <option key={c} value={c} />
+              ))}
+            </datalist>
+          )}
+        </div>
+
+        <div className="md:w-28">
           <label className="block text-sm font-medium text-slate-500">株名</label>
           <input
             type="text"

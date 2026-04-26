@@ -7,6 +7,8 @@ import type { FieldValue, Timestamp } from 'firebase/firestore';
  */
 export type StrainFormValue = {
   id: string;
+  /** 品目 (トマト / ナス など)。空文字は「未分類」として扱う。 */
+  category: string;
   name: string;
   height: number | '';
   leafCount: number | '';
@@ -18,6 +20,8 @@ export type StrainFormValue = {
 /** Firestore に保存される株データ。 */
 export type Strain = {
   id: string;
+  /** 品目 (トマト / ナス など)。古いレコードには存在しないので読み出し時は ?? '' で扱う。 */
+  category?: string;
   name: string;
   height: number | null;
   leafCount: number | null;

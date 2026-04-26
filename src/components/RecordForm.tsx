@@ -1,11 +1,13 @@
 import { useEffect, useMemo, useState } from 'react';
 import type { User } from 'firebase/auth';
 import StrainRow from './StrainRow';
+import { UNCATEGORIZED, calcAveragesByCategory } from '../lib/categories';
 import { calcAverages, fetchRecord, saveRecord, type SaveRecordResult } from '../lib/records';
 import type { StrainFormValue } from '../types';
 
 const emptyStrain = (index: number): StrainFormValue => ({
   id: String.fromCharCode(65 + index),
+  category: '',
   name: `${String.fromCharCode(65 + index)}株`,
   height: '',
   leafCount: '',
@@ -22,9 +24,16 @@ type RecordFormProps = {
   user: User;
   dateId: string;
   onSaved?: (saved: SaveRecordResult) => void;
+  /** 過去レコードから集めた品目候補。フォームの datalist に流す。 */
+  categorySuggestions?: string[];
 };
 
-export default function RecordForm({ user, dateId, onSaved }: RecordFormProps) {
+export default function RecordForm({
+  user,
+  dateId,
+  onSaved,
+  categorySuggestions = [],
+}: RecordFormProps) {
   const [strains, setStrains] = useState<StrainFormValue[]>(DEFAULT_STRAINS);
   const [status, setStatus] = useState<FormStatus>('idle');
   const [error, setError] = useState<string | null>(null);
@@ -40,6 +49,7 @@ export default function RecordForm({ user, dateId, onSaved }: RecordFormProps) {
           setStrains(
             record.strains.map((s) => ({
               id: s.id,
+              category: s.category ?? '',
               name: s.name ?? s.id,
               height: s.height ?? '',
               leafCount: s.leafCount ?? '',
@@ -67,13 +77,29 @@ export default function RecordForm({ user, dateId, onSaved }: RecordFormProps) {
     setUploadingCount((n) => Math.max(0, n + (isUploading ? 1 : -1)));
   };
 
-  const averages = useMemo(() => {
-    const parsed = strains.map((s) => ({
-      height: s.height === '' ? null : Number(s.height),
-      leafCount: s.leafCount === '' ? null : Number(s.leafCount),
-    }));
-    return calcAverages(parsed);
-  }, [strains]);
+  const parsedForAverages = useMemo(
+    () =>
+      strains.map((s) => ({
+        category: s.category,
+        height: s.height === '' ? null : Number(s.height),
+        leafCount: s.leafCount === '' ? null : Number(s.leafCount),
+      })),
+    [strains]
+  );
+
+  const averages = useMemo(() => calcAverages(parsedForAverages), [parsedForAverages]);
+
+  const averagesByCategory = useMemo(
+    () => calcAveragesByCategory(parsedForAverages),
+    [parsedForAverages]
+  );
+
+  // 全部「未分類」しか入っていないなら従来通りまとめて 1 行表示。
+  // 品目を 2 つ以上付けたら品目別に分けて表示する。
+  const categoryKeys = Object.keys(averagesByCategory);
+  const showByCategory =
+    categoryKeys.length > 1 ||
+    (categoryKeys.length === 1 && categoryKeys[0] !== UNCATEGORIZED);
 
   const addStrain = () => {
     setStrains((prev) => [...prev, emptyStrain(prev.length)]);
@@ -122,6 +148,7 @@ export default function RecordForm({ user, dateId, onSaved }: RecordFormProps) {
             onRemove={() => removeStrain(i)}
             canRemove={strains.length > 1}
             onUploadingChange={handleUploadingChange}
+            categorySuggestions={categorySuggestions}
           />
         ))}
       </div>
@@ -147,22 +174,49 @@ export default function RecordForm({ user, dateId, onSaved }: RecordFormProps) {
 
       <section className="card bg-leaf-50 ring-leaf-100">
         <h3 className="text-lg font-semibold text-leaf-700">本日の平均</h3>
-        <dl className="mt-2 grid grid-cols-2 gap-4 text-tap">
-          <div>
-            <dt className="text-slate-500">草丈</dt>
-            <dd className="text-3xl font-bold text-leaf-700">
-              {averages.height ?? '—'}
-              <span className="text-base font-normal text-slate-500"> cm</span>
-            </dd>
-          </div>
-          <div>
-            <dt className="text-slate-500">葉枚数</dt>
-            <dd className="text-3xl font-bold text-leaf-700">
-              {averages.leafCount ?? '—'}
-              <span className="text-base font-normal text-slate-500"> 枚</span>
-            </dd>
-          </div>
-        </dl>
+        {showByCategory ? (
+          <ul className="mt-2 flex flex-col gap-2 text-tap">
+            {categoryKeys
+              .sort((a, b) => a.localeCompare(b, 'ja'))
+              .map((key) => {
+                const a = averagesByCategory[key];
+                return (
+                  <li
+                    key={key}
+                    className="flex flex-wrap items-baseline justify-between gap-2 rounded-xl bg-white/70 px-3 py-2"
+                  >
+                    <span className="text-sm font-semibold text-leaf-700">{key}</span>
+                    <span className="text-base text-slate-700">
+                      草丈{' '}
+                      <span className="font-bold text-leaf-700">{a.height ?? '—'}</span>
+                      <span className="text-sm text-slate-500"> cm</span>
+                      <span className="mx-2 text-slate-300">/</span>
+                      葉{' '}
+                      <span className="font-bold text-leaf-700">{a.leafCount ?? '—'}</span>
+                      <span className="text-sm text-slate-500"> 枚</span>
+                    </span>
+                  </li>
+                );
+              })}
+          </ul>
+        ) : (
+          <dl className="mt-2 grid grid-cols-2 gap-4 text-tap">
+            <div>
+              <dt className="text-slate-500">草丈</dt>
+              <dd className="text-3xl font-bold text-leaf-700">
+                {averages.height ?? '—'}
+                <span className="text-base font-normal text-slate-500"> cm</span>
+              </dd>
+            </div>
+            <div>
+              <dt className="text-slate-500">葉枚数</dt>
+              <dd className="text-3xl font-bold text-leaf-700">
+                {averages.leafCount ?? '—'}
+                <span className="text-base font-normal text-slate-500"> 枚</span>
+              </dd>
+            </div>
+          </dl>
+        )}
       </section>
 
       {error && (

@@ -1,6 +1,6 @@
 import type { RecordDoc } from '../types';
 
-const HEADERS = ['日付', '株名', '草丈(cm)', '葉枚数(枚)', '写真URL'] as const;
+const HEADERS = ['日付', '品目', '株名', '草丈(cm)', '葉枚数(枚)', '写真URL'] as const;
 
 // RFC 4180: フィールドが , " \r \n を含むときはダブルクォートで囲み、内部の " は "" にする。
 function escapeField(value: unknown): string {
@@ -18,6 +18,7 @@ export function recordsToCsv(records: RecordDoc[]): string {
     for (const s of r.strains ?? []) {
       rows.push([
         r.date,
+        s.category ?? '',
         s.name ?? s.id,
         s.height == null ? '' : String(s.height),
         s.leafCount == null ? '' : String(s.leafCount),

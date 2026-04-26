@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useState } from 'react';
+import { useCallback, useEffect, useMemo, useState } from 'react';
 import type { User } from 'firebase/auth';
 import DatePickerCard from './components/DatePickerCard';
 import ExportCsvButton from './components/ExportCsvButton';
@@ -7,6 +7,7 @@ import PhotoTimeline from './components/PhotoTimeline';
 import RecordForm from './components/RecordForm';
 import SignInScreen from './components/SignInScreen';
 import Toast from './components/Toast';
+import { categorySuggestions } from './lib/categories';
 import { signOutUser, subscribeToAuth } from './lib/firebase';
 import { fetchAllRecords, toDateId, type SaveRecordResult } from './lib/records';
 import type { RecordDoc, ToastMessage } from './types';
@@ -98,6 +99,7 @@ export default function App() {
   }
 
   const { user } = authState;
+  const knownCategories = useMemo(() => categorySuggestions(records), [records]);
 
   return (
     <div className="min-h-screen px-4 py-6 md:px-8 md:py-10">
@@ -145,7 +147,12 @@ export default function App() {
           recordedDates={records.map((r) => r.date)}
         />
 
-        <RecordForm user={user} dateId={selectedDate} onSaved={handleSaved} />
+        <RecordForm
+          user={user}
+          dateId={selectedDate}
+          onSaved={handleSaved}
+          categorySuggestions={knownCategories}
+        />
 
         <div className="flex justify-end">
           <ExportCsvButton

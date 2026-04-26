@@ -90,6 +90,8 @@ export async function saveRecord({
 }: SaveRecordArgs): Promise<SaveRecordResult> {
   const cleanStrains: Strain[] = strains.map((s) => ({
     id: s.id,
+    // 品目は表示・絞り込みのキー。トリムして 40 字まで。空文字も許容 (= 未分類)。
+    category: typeof s.category === 'string' ? s.category.trim().slice(0, 40) : '',
     name: s.name?.trim() || s.id,
     height: Number.isFinite(Number(s.height)) ? Number(s.height) : null,
     leafCount: Number.isFinite(Number(s.leafCount)) ? Number(s.leafCount) : null,

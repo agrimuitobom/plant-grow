@@ -1,4 +1,5 @@
 import { useMemo, useState } from 'react';
+import { UNCATEGORIZED, categoryOf, uniqueCategories } from '../lib/categories';
 import type { RecordDoc } from '../types';
 
 type Props = {
@@ -12,37 +13,52 @@ type TimelineItem = {
   leafCount: number | null;
   memo: string;
   name: string;
+  category: string;
 };
 
 type StrainOption = {
   id: string;
   name: string;
+  category: string;
   count: number;
 };
 
-// 株の id (A/B/C…) を軸に集計する。name は途中で改名されうるため、最後に観測された name を採用する。
+const ALL_CATEGORIES = '__ALL__';
+
+// 株の id (A/B/C…) と品目の組を軸に集計する。name は途中で改名されうるため、最後に観測された name を採用する。
 function buildStrainOptions(records: RecordDoc[]): StrainOption[] {
   const map = new Map<string, StrainOption>();
   for (const r of records) {
     for (const s of r.strains ?? []) {
       if (!s.photoUrl) continue;
-      const existing = map.get(s.id);
+      const cat = categoryOf(s);
+      // 同じ id でも品目が変われば別の株として扱う (トマトA とナスA を混ぜない)。
+      const key = `${cat}::${s.id}`;
+      const existing = map.get(key);
       if (existing) {
         existing.count += 1;
         existing.name = s.name ?? existing.name;
       } else {
-        map.set(s.id, { id: s.id, name: s.name ?? s.id, count: 1 });
+        map.set(key, { id: s.id, name: s.name ?? s.id, category: cat, count: 1 });
       }
     }
   }
-  return [...map.values()].sort((a, b) => a.id.localeCompare(b.id));
+  return [...map.values()].sort((a, b) => {
+    const c = a.category.localeCompare(b.category, 'ja');
+    return c !== 0 ? c : a.id.localeCompare(b.id);
+  });
 }
 
-function buildTimeline(records: RecordDoc[], strainId: string): TimelineItem[] {
+function buildTimeline(
+  records: RecordDoc[],
+  strainId: string,
+  category: string
+): TimelineItem[] {
   const items: TimelineItem[] = [];
   for (const r of records) {
     for (const s of r.strains ?? []) {
       if (s.id !== strainId || !s.photoUrl) continue;
+      if (categoryOf(s) !== category) continue;
       items.push({
         date: r.date,
         photoUrl: s.photoUrl,
@@ -50,6 +66,7 @@ function buildTimeline(records: RecordDoc[], strainId: string): TimelineItem[] {
         leafCount: s.leafCount,
         memo: s.memo ?? '',
         name: s.name ?? s.id,
+        category: categoryOf(s),
       });
     }
   }
@@ -58,15 +75,36 @@ function buildTimeline(records: RecordDoc[], strainId: string): TimelineItem[] {
 }
 
 export default function PhotoTimeline({ records }: Props) {
-  const options = useMemo(() => buildStrainOptions(records), [records]);
-  const [selected, setSelected] = useState<string | null>(null);
+  const allOptions = useMemo(() => buildStrainOptions(records), [records]);
+  const categories = useMemo(() => uniqueCategories(records), [records]);
+  const showCategoryFilter =
+    categories.length > 1 || (categories.length === 1 && categories[0] !== UNCATEGORIZED);
 
-  // 株の追加/削除で選択中の id が消えた時に最初の株へフォールバック。
+  const [categoryFilter, setCategoryFilter] = useState<string>(ALL_CATEGORIES);
+  const [selected, setSelected] = useState<{ id: string; category: string } | null>(null);
+
+  // 品目フィルタを通した株の選択肢。
+  const options = useMemo(
+    () =>
+      categoryFilter === ALL_CATEGORIES
+        ? allOptions
+        : allOptions.filter((o) => o.category === categoryFilter),
+    [allOptions, categoryFilter]
+  );
+
+  // 株の追加/削除や品目フィルタ変更で選択中の (id, category) が消えた時のフォールバック。
   const effectiveSelected =
-    selected && options.some((o) => o.id === selected) ? selected : options[0]?.id ?? null;
+    selected && options.some((o) => o.id === selected.id && o.category === selected.category)
+      ? selected
+      : options[0]
+        ? { id: options[0].id, category: options[0].category }
+        : null;
 
   const items = useMemo(
-    () => (effectiveSelected ? buildTimeline(records, effectiveSelected) : []),
+    () =>
+      effectiveSelected
+        ? buildTimeline(records, effectiveSelected.id, effectiveSelected.category)
+        : [],
     [records, effectiveSelected]
   );
 
@@ -77,36 +115,70 @@ export default function PhotoTimeline({ records }: Props) {
         <span className="text-xs text-slate-500">株を選んで成長を時系列で見る</span>
       </header>
 
-      {options.length === 0 ? (
+      {allOptions.length === 0 ? (
         <p className="mt-4 text-slate-500">
           写真付きの記録がまだありません。観察フォームから写真を追加するとここに並びます。
         </p>
       ) : (
         <>
-          <div className="mt-4 flex flex-wrap gap-2">
-            {options.map((o) => {
-              const active = o.id === effectiveSelected;
-              return (
-                <button
-                  key={o.id}
-                  type="button"
-                  onClick={() => setSelected(o.id)}
-                  className={`rounded-full px-4 py-2 text-sm font-semibold transition ${
-                    active
-                      ? 'bg-leaf-500 text-white shadow'
-                      : 'bg-slate-100 text-slate-700 hover:bg-slate-200'
-                  }`}
-                  aria-pressed={active}
-                >
-                  {o.name}
-                  <span
-                    className={`ml-2 text-xs ${active ? 'text-leaf-50' : 'text-slate-400'}`}
+          {showCategoryFilter && (
+            <div className="mt-4 flex flex-wrap items-center gap-2">
+              <span className="text-xs text-slate-500">品目:</span>
+              {[ALL_CATEGORIES, ...categories].map((c) => {
+                const active = c === categoryFilter;
+                const label = c === ALL_CATEGORIES ? 'すべて' : c;
+                return (
+                  <button
+                    key={c}
+                    type="button"
+                    onClick={() => setCategoryFilter(c)}
+                    className={`rounded-full px-3 py-1 text-xs font-semibold transition ${
+                      active
+                        ? 'bg-leaf-700 text-white'
+                        : 'bg-slate-100 text-slate-600 hover:bg-slate-200'
+                    }`}
+                    aria-pressed={active}
                   >
-                    {o.count}
-                  </span>
-                </button>
-              );
-            })}
+                    {label}
+                  </button>
+                );
+              })}
+            </div>
+          )}
+
+          <div className="mt-4 flex flex-wrap gap-2">
+            {options.length === 0 ? (
+              <p className="text-sm text-slate-500">この品目には写真付きの株がありません。</p>
+            ) : (
+              options.map((o) => {
+                const active =
+                  effectiveSelected?.id === o.id &&
+                  effectiveSelected?.category === o.category;
+                return (
+                  <button
+                    key={`${o.category}::${o.id}`}
+                    type="button"
+                    onClick={() => setSelected({ id: o.id, category: o.category })}
+                    className={`rounded-full px-4 py-2 text-sm font-semibold transition ${
+                      active
+                        ? 'bg-leaf-500 text-white shadow'
+                        : 'bg-slate-100 text-slate-700 hover:bg-slate-200'
+                    }`}
+                    aria-pressed={active}
+                  >
+                    {showCategoryFilter && o.category !== UNCATEGORIZED && (
+                      <span className="mr-1 text-xs opacity-80">{o.category}</span>
+                    )}
+                    {o.name}
+                    <span
+                      className={`ml-2 text-xs ${active ? 'text-leaf-50' : 'text-slate-400'}`}
+                    >
+                      {o.count}
+                    </span>
+                  </button>
+                );
+              })
+            )}
           </div>
 
           <ol className="mt-6 grid grid-cols-1 gap-4 sm:grid-cols-2 lg:grid-cols-3">
