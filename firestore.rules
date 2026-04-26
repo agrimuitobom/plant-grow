@@ -75,6 +75,14 @@ service cloud.firestore {
         && isValidRecord(request.resource.data)
         && hasAuditFields(request.resource.data, userId);
       allow delete: if false; // 誤操作防止のため UI では削除させない
+
+      // 編集履歴: 上書き保存の直前にスナップショットを残す。
+      // 不変アーカイブとして create のみ許可、update/delete はクライアントから不可。
+      match /history/{historyId} {
+        allow read: if isOwner(userId) || isTeacher(classId);
+        allow create: if isOwner(userId);
+        allow update, delete: if false;
+      }
     }
 
     // それ以外は全拒否 (デフォルト)

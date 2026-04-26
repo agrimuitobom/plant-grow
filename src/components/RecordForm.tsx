@@ -1,9 +1,10 @@
 import { useEffect, useMemo, useState } from 'react';
 import type { User } from 'firebase/auth';
+import HistoryPanel from './HistoryPanel';
 import StrainRow from './StrainRow';
 import { UNCATEGORIZED, calcAveragesByCategory } from '../lib/categories';
 import { calcAverages, fetchRecord, saveRecord, type SaveRecordResult } from '../lib/records';
-import type { StrainFormValue } from '../types';
+import type { Strain, StrainFormValue } from '../types';
 
 const emptyStrain = (index: number): StrainFormValue => ({
   id: String.fromCharCode(65 + index),
@@ -41,6 +42,7 @@ export default function RecordForm({
   const [status, setStatus] = useState<FormStatus>('idle');
   const [error, setError] = useState<string | null>(null);
   const [uploadingCount, setUploadingCount] = useState(0);
+  const [historyRefreshKey, setHistoryRefreshKey] = useState(0);
 
   useEffect(() => {
     let cancelled = false;
@@ -124,11 +126,29 @@ export default function RecordForm({
       const saved = await saveRecord({ user, dateId, strains });
       setStatus('saved');
       onSaved?.(saved);
+      // 保存に成功したら履歴一覧をリフレッシュさせる (新しい snapshot が積まれているはず)。
+      setHistoryRefreshKey((k) => k + 1);
       setTimeout(() => setStatus('idle'), 1500);
     } catch (err: unknown) {
       setError(err instanceof Error ? err.message : String(err));
       setStatus('error');
     }
+  };
+
+  // 履歴から復元する: Firestore はまだ書き換えず、フォームに値を流し込むだけ。
+  const handleRestore = (snap: Strain[]) => {
+    setStrains(
+      snap.map((s) => ({
+        id: s.id,
+        category: s.category ?? '',
+        name: s.name ?? s.id,
+        height: s.height ?? '',
+        leafCount: s.leafCount ?? '',
+        memo: s.memo ?? '',
+        photoPath: s.photoPath ?? null,
+        photoUrl: s.photoUrl ?? null,
+      }))
+    );
   };
 
   return (
@@ -175,6 +195,13 @@ export default function RecordForm({
                 : '保存する'}
         </button>
       </div>
+
+      <HistoryPanel
+        uid={user.uid}
+        dateId={dateId}
+        refreshKey={historyRefreshKey}
+        onRestore={handleRestore}
+      />
 
       <section className="card bg-leaf-50 ring-leaf-100">
         <h3 className="text-lg font-semibold text-leaf-700">本日の平均</h3>

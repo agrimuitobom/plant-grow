@@ -238,6 +238,140 @@ describe('teacher role management', () => {
   });
 });
 
+describe('history subcollection', () => {
+  const HISTORY_PAYLOAD = {
+    ...VALID_RECORD,
+    snapshotAt: new Date('2026-04-19T00:00:00Z'),
+    snapshotBy: 'student-a',
+    snapshotByName: 'A',
+  };
+
+  it('owner can create a history snapshot', async () => {
+    const fs = asUser('student-a');
+    await assertSucceeds(
+      setDoc(
+        doc(
+          fs,
+          'classes',
+          CLASS_ID,
+          'students',
+          'student-a',
+          'records',
+          '2026-04-20',
+          'history',
+          'snap-1'
+        ),
+        HISTORY_PAYLOAD
+      )
+    );
+  });
+
+  it("another student cannot create / read someone else's history", async () => {
+    await env.withSecurityRulesDisabled(async (ctx) => {
+      const fs = ctx.firestore();
+      await setDoc(
+        doc(
+          fs,
+          'classes',
+          CLASS_ID,
+          'students',
+          'student-a',
+          'records',
+          '2026-04-20',
+          'history',
+          'snap-1'
+        ),
+        HISTORY_PAYLOAD
+      );
+    });
+    const fs = asUser('student-b');
+    await assertFails(
+      getDoc(
+        doc(
+          fs,
+          'classes',
+          CLASS_ID,
+          'students',
+          'student-a',
+          'records',
+          '2026-04-20',
+          'history',
+          'snap-1'
+        )
+      )
+    );
+    await assertFails(
+      setDoc(
+        doc(
+          fs,
+          'classes',
+          CLASS_ID,
+          'students',
+          'student-a',
+          'records',
+          '2026-04-20',
+          'history',
+          'snap-2'
+        ),
+        HISTORY_PAYLOAD
+      )
+    );
+  });
+
+  it('teacher can read history but cannot write', async () => {
+    await seedTeacher('teacher-1');
+    await env.withSecurityRulesDisabled(async (ctx) => {
+      const fs = ctx.firestore();
+      await setDoc(
+        doc(
+          fs,
+          'classes',
+          CLASS_ID,
+          'students',
+          'student-a',
+          'records',
+          '2026-04-20',
+          'history',
+          'snap-1'
+        ),
+        HISTORY_PAYLOAD
+      );
+    });
+    const fs = asUser('teacher-1');
+    await assertSucceeds(
+      getDoc(
+        doc(
+          fs,
+          'classes',
+          CLASS_ID,
+          'students',
+          'student-a',
+          'records',
+          '2026-04-20',
+          'history',
+          'snap-1'
+        )
+      )
+    );
+    await assertFails(
+      setDoc(
+        doc(
+          fs,
+          'classes',
+          CLASS_ID,
+          'students',
+          'student-a',
+          'records',
+          '2026-04-20',
+          'history',
+          'snap-2'
+        ),
+        HISTORY_PAYLOAD
+      )
+    );
+  });
+});
+
 describe('roster (students/{uid})', () => {
   it('student can upsert only their own roster doc with uid+displayName', async () => {
     const fs = asUser('student-a');

@@ -94,7 +94,7 @@ firebase deploy
 ```
 classes/{classId}/students/{uid}/records/{YYYY-MM-DD}
   date:           "2026-04-20"
-  strains:        [{ id, name, height, leafCount, memo, photoPath?, photoUrl? }]
+  strains:        [{ id, category?, name, height, leafCount, memo, photoPath?, photoUrl? }]
   averages:       { height, leafCount }
   createdAt:      Timestamp           // 新規作成時のみ
   updatedAt:      Timestamp
@@ -102,6 +102,13 @@ classes/{classId}/students/{uid}/records/{YYYY-MM-DD}
   createdByName:  displayName         // 表示用キャッシュ (新規作成時)
   updatedBy:      uid
   updatedByName:  displayName
+
+classes/{classId}/students/{uid}/records/{YYYY-MM-DD}/history/{ISO8601}
+  // 上書き保存の直前バージョンをアーカイブ。書き込みは create のみ (Rules で update/delete 禁止)。
+  ...record と同じフィールド,
+  snapshotAt:     Timestamp
+  snapshotBy:     uid
+  snapshotByName: displayName
 ```
 
 - 「クラス × 生徒 × 日付」の 3 軸で 1 レコードに正規化。
