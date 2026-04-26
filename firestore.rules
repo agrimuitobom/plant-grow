@@ -25,11 +25,23 @@ service cloud.firestore {
         && data.averages is map;
     }
 
-    match /classes/{classId}/records/{dateId} {
-      allow read: if isSignedIn();
-      allow create, update: if isSignedIn()
+    function isOwner(userId) {
+      return isSignedIn() && request.auth.uid == userId;
+    }
+
+    function hasAuditFields(data, userId) {
+      return data.createdBy == userId
+        && data.updatedBy == userId;
+    }
+
+    // 各生徒は classes/{classId}/students/{uid}/records/{YYYY-MM-DD} の自分の領域だけ R/W 可能。
+    // 監査用に createdBy / updatedBy を記録する (パスの uid と一致を強制)。
+    match /classes/{classId}/students/{userId}/records/{dateId} {
+      allow read: if isOwner(userId);
+      allow create, update: if isOwner(userId)
         && isValidDateId(dateId)
-        && isValidRecord(request.resource.data);
+        && isValidRecord(request.resource.data)
+        && hasAuditFields(request.resource.data, userId);
       allow delete: if false; // 誤操作防止のため UI では削除させない
     }
 

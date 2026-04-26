@@ -13,7 +13,7 @@ const emptyStrain = (index) => ({
 
 const DEFAULT_STRAINS = [emptyStrain(0), emptyStrain(1), emptyStrain(2)];
 
-export default function RecordForm({ dateId, onSaved }) {
+export default function RecordForm({ user, dateId, onSaved }) {
   const [strains, setStrains] = useState(DEFAULT_STRAINS);
   const [status, setStatus] = useState('idle');
   const [error, setError] = useState(null);
@@ -22,7 +22,7 @@ export default function RecordForm({ dateId, onSaved }) {
   useEffect(() => {
     let cancelled = false;
     setStatus('loading');
-    fetchRecord(dateId)
+    fetchRecord(user.uid, dateId)
       .then((record) => {
         if (cancelled) return;
         if (record?.strains?.length) {
@@ -49,7 +49,7 @@ export default function RecordForm({ dateId, onSaved }) {
     return () => {
       cancelled = true;
     };
-  }, [dateId]);
+  }, [user.uid, dateId]);
 
   const handleUploadingChange = (isUploading) => {
     setUploadingCount((n) => Math.max(0, n + (isUploading ? 1 : -1)));
@@ -81,7 +81,7 @@ export default function RecordForm({ dateId, onSaved }) {
     setStatus('saving');
     setError(null);
     try {
-      const saved = await saveRecord({ dateId, strains });
+      const saved = await saveRecord({ user, dateId, strains });
       setStatus('saved');
       onSaved?.(saved);
       setTimeout(() => setStatus('idle'), 1500);
@@ -105,6 +105,7 @@ export default function RecordForm({ dateId, onSaved }) {
           <StrainRow
             key={`${s.id}-${i}`}
             strain={s}
+            uid={user.uid}
             dateId={dateId}
             onChange={(next) => updateStrain(i, next)}
             onRemove={() => removeStrain(i)}

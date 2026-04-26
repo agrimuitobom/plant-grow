@@ -49,15 +49,18 @@ async function compressImage(file) {
   return blob;
 }
 
-function photoRef(dateId, strainId) {
+function photoRef(uid, dateId, strainId) {
   // ファイル名にタイムスタンプを入れて、同じ株に再アップロードしても衝突しない。
   const filename = `${strainId}-${Date.now()}.jpg`;
-  return storageRef(storage, `classes/${CLASS_ID}/photos/${dateId}/${filename}`);
+  return storageRef(
+    storage,
+    `classes/${CLASS_ID}/students/${uid}/photos/${dateId}/${filename}`
+  );
 }
 
-export async function uploadStrainPhoto({ dateId, strainId, file }) {
+export async function uploadStrainPhoto({ uid, dateId, strainId, file }) {
   const blob = await compressImage(file);
-  const ref = photoRef(dateId, strainId);
+  const ref = photoRef(uid, dateId, strainId);
   await uploadBytes(ref, blob, { contentType: 'image/jpeg' });
   const url = await getDownloadURL(ref);
   return { photoPath: ref.fullPath, photoUrl: url };

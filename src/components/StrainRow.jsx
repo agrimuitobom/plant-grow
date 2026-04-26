@@ -3,6 +3,7 @@ import { deleteStrainPhoto, uploadStrainPhoto } from '../lib/storage';
 
 export default function StrainRow({
   strain,
+  uid,
   dateId,
   onChange,
   onRemove,
@@ -30,6 +31,7 @@ export default function StrainRow({
     const previousPath = strain.photoPath;
     try {
       const { photoPath, photoUrl } = await uploadStrainPhoto({
+        uid,
         dateId,
         strainId: strain.id,
         file,
