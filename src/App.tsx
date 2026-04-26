@@ -1,7 +1,9 @@
 import { useCallback, useEffect, useState } from 'react';
 import type { User } from 'firebase/auth';
 import DatePickerCard from './components/DatePickerCard';
+import ExportCsvButton from './components/ExportCsvButton';
 import GrowthChart from './components/GrowthChart';
+import PhotoTimeline from './components/PhotoTimeline';
 import RecordForm from './components/RecordForm';
 import SignInScreen from './components/SignInScreen';
 import Toast from './components/Toast';
@@ -145,7 +147,16 @@ export default function App() {
 
         <RecordForm user={user} dateId={selectedDate} onSaved={handleSaved} />
 
+        <div className="flex justify-end">
+          <ExportCsvButton
+            records={records}
+            ownerLabel={user.displayName || user.email || null}
+          />
+        </div>
+
         <GrowthChart records={records} />
+
+        <PhotoTimeline records={records} />
       </main>
 
       <footer className="mx-auto mt-10 max-w-5xl text-center text-xs text-slate-400">
