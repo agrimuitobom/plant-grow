@@ -36,9 +36,9 @@ jobs:
           channelId: live
           projectId: plant-research-b106b
 
-      - name: Deploy Firestore rules
+      - name: Deploy Firestore & Storage rules
         uses: w9jds/firebase-action@v13.23.1
         with:
-          args: deploy --only firestore:rules --project plant-research-b106b
+          args: deploy --only firestore:rules,storage --project plant-research-b106b
         env:
           GCP_SA_KEY: ${{ secrets.FIREBASE_SERVICE_ACCOUNT_PLANT_RESEARCH_B106B }}

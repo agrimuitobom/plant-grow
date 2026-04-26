@@ -9,13 +9,14 @@ import {
   setDoc,
 } from 'firebase/firestore';
 import { db, CLASS_ID } from './firebase';
+import { deleteStrainPhoto } from './storage';
 
 /**
  * Firestore schema
  * --------------------------------------------------------------
  * classes/{classId}/records/{YYYY-MM-DD}
  *   date:       "2026-04-20"           // doc id と同値。クエリ用に重複保持
- *   strains:    [{ id, name, height, leafCount }]
+ *   strains:    [{ id, name, height, leafCount, photoPath?, photoUrl? }]
  *   averages:   { height, leafCount }  // 入力時に算出
  *   createdAt:  Timestamp
  *   updatedAt:  Timestamp
@@ -61,24 +62,45 @@ export async function fetchAllRecords() {
   return snap.docs.map((d) => d.data());
 }
 
+const photoPathsOf = (strains) =>
+  (strains ?? []).map((s) => s?.photoPath).filter(Boolean);
+
 export async function saveRecord({ dateId, strains }) {
   const cleanStrains = strains.map((s) => ({
     id: s.id,
     name: s.name?.trim() || s.id,
     height: Number.isFinite(Number(s.height)) ? Number(s.height) : null,
     leafCount: Number.isFinite(Number(s.leafCount)) ? Number(s.leafCount) : null,
+    photoPath: s.photoPath ?? null,
+    photoUrl: s.photoUrl ?? null,
   }));
   const averages = calcAverages(cleanStrains);
-  await setDoc(
-    recordDoc(dateId),
-    {
-      date: dateId,
-      strains: cleanStrains,
-      averages,
-      updatedAt: serverTimestamp(),
-      createdAt: serverTimestamp(),
-    },
-    { merge: true }
-  );
+  const ref = recordDoc(dateId);
+
+  // runTransaction はオフライン時に失敗するため使えない。
+  // 永続キャッシュ越しの getDoc + setDoc(merge) で代替する。
+  // - getDoc: オフライン時はローカルキャッシュにフォールバック
+  // - setDoc: オフライン時は writePendingQueue に積まれ、復帰後に同期される
+  // - createdAt は新規作成判定の時だけ含める
+  const snap = await getDoc(ref);
+  const previousPaths = snap.exists() ? photoPathsOf(snap.data().strains) : [];
+
+  const payload = {
+    date: dateId,
+    strains: cleanStrains,
+    averages,
+    updatedAt: serverTimestamp(),
+  };
+  if (!snap.exists()) {
+    payload.createdAt = serverTimestamp();
+  }
+  await setDoc(ref, payload, { merge: true });
+
+  // 参照されなくなった写真は削除して Storage を肥大化させない。
+  // Storage はオフラインキューを持たないので、ここはネットがある時しか動かない。失敗は許容。
+  const keptPaths = new Set(photoPathsOf(cleanStrains));
+  const orphans = previousPaths.filter((p) => !keptPaths.has(p));
+  await Promise.all(orphans.map((p) => deleteStrainPhoto(p).catch(() => {})));
+
   return { date: dateId, strains: cleanStrains, averages };
 }

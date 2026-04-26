@@ -1,0 +1,74 @@
+import {
+  deleteObject,
+  getDownloadURL,
+  ref as storageRef,
+  uploadBytes,
+} from 'firebase/storage';
+import { CLASS_ID, storage } from './firebase';
+
+const MAX_WIDTH = 1080;
+const JPEG_QUALITY = 0.8;
+
+function loadImage(file) {
+  return new Promise((resolve, reject) => {
+    const url = URL.createObjectURL(file);
+    const img = new Image();
+    img.onload = () => {
+      URL.revokeObjectURL(url);
+      resolve(img);
+    };
+    img.onerror = (e) => {
+      URL.revokeObjectURL(url);
+      reject(e);
+    };
+    img.src = url;
+  });
+}
+
+// iPad で撮影された写真は数MBあるので、アップロード前に長辺基準ではなく
+// 「幅 1080px」を上限に縮小する。Storage の課金と転送量の双方を抑える。
+async function compressImage(file) {
+  const img = await loadImage(file);
+  const ratio = img.width > MAX_WIDTH ? MAX_WIDTH / img.width : 1;
+  const targetW = Math.round(img.width * ratio);
+  const targetH = Math.round(img.height * ratio);
+
+  const canvas = document.createElement('canvas');
+  canvas.width = targetW;
+  canvas.height = targetH;
+  const ctx = canvas.getContext('2d');
+  ctx.drawImage(img, 0, 0, targetW, targetH);
+
+  const blob = await new Promise((resolve, reject) => {
+    canvas.toBlob(
+      (b) => (b ? resolve(b) : reject(new Error('画像の圧縮に失敗しました'))),
+      'image/jpeg',
+      JPEG_QUALITY
+    );
+  });
+  return blob;
+}
+
+function photoRef(dateId, strainId) {
+  // ファイル名にタイムスタンプを入れて、同じ株に再アップロードしても衝突しない。
+  const filename = `${strainId}-${Date.now()}.jpg`;
+  return storageRef(storage, `classes/${CLASS_ID}/photos/${dateId}/${filename}`);
+}
+
+export async function uploadStrainPhoto({ dateId, strainId, file }) {
+  const blob = await compressImage(file);
+  const ref = photoRef(dateId, strainId);
+  await uploadBytes(ref, blob, { contentType: 'image/jpeg' });
+  const url = await getDownloadURL(ref);
+  return { photoPath: ref.fullPath, photoUrl: url };
+}
+
+export async function deleteStrainPhoto(path) {
+  if (!path) return;
+  try {
+    await deleteObject(storageRef(storage, path));
+  } catch (e) {
+    // すでに削除済み (object-not-found) は許容。それ以外は呼び出し元に任せる。
+    if (e?.code !== 'storage/object-not-found') throw e;
+  }
+}

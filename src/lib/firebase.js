@@ -1,6 +1,17 @@
 import { initializeApp } from 'firebase/app';
-import { getAuth, signInAnonymously, onAuthStateChanged } from 'firebase/auth';
-import { getFirestore } from 'firebase/firestore';
+import {
+  GoogleAuthProvider,
+  getAuth,
+  onAuthStateChanged,
+  signInWithPopup,
+  signOut,
+} from 'firebase/auth';
+import {
+  initializeFirestore,
+  persistentLocalCache,
+  persistentMultipleTabManager,
+} from 'firebase/firestore';
+import { getStorage } from 'firebase/storage';
 
 // これらの値は「公開しても安全」な識別子 (アクセス制御は firestore.rules 側で実施)。
 // ローカルでは .env.local、CI/本番では GitHub Actions の Secrets から注入される。
@@ -16,13 +27,26 @@ const firebaseConfig = {
 export const CLASS_ID = import.meta.env.VITE_CLASS_ID || 'class-demo';
 
 export const app = initializeApp(firebaseConfig);
-export const db = getFirestore(app);
-export const auth = getAuth(app);
-
-// ルールが「認証済みのみ」を要求するため、起動時に匿名サインインしておく。
-export const authReady = new Promise((resolve, reject) => {
-  onAuthStateChanged(auth, (user) => {
-    if (user) resolve(user);
-  });
-  signInAnonymously(auth).catch(reject);
+// IndexedDB ベースの永続キャッシュを有効化。授業中に Wi-Fi が切れても
+// 書き込みは端末に保留され、復帰後に自動同期される。
+// 利用不可な環境 (プライベートブラウジング等) では自動的にメモリキャッシュにフォールバック。
+export const db = initializeFirestore(app, {
+  localCache: persistentLocalCache({ tabManager: persistentMultipleTabManager() }),
 });
+export const auth = getAuth(app);
+export const storage = getStorage(app);
+
+const googleProvider = new GoogleAuthProvider();
+googleProvider.setCustomParameters({ prompt: 'select_account' });
+
+export function signInWithGoogle() {
+  return signInWithPopup(auth, googleProvider);
+}
+
+export function signOutUser() {
+  return signOut(auth);
+}
+
+export function subscribeToAuth(cb) {
+  return onAuthStateChanged(auth, cb);
+}
