@@ -32,13 +32,13 @@ jobs:
         uses: FirebaseExtended/action-hosting-deploy@v0
         with:
           repoToken: ${{ secrets.GITHUB_TOKEN }}
-          firebaseServiceAccount: ${{ secrets.FIREBASE_SERVICE_ACCOUNT_PLANT_GROWTH_TRACKER_C4E0C }}
+          firebaseServiceAccount: ${{ secrets.FIREBASE_SERVICE_ACCOUNT_PLANT_RESEARCH_B106B }}
           channelId: live
-          projectId: plant-growth-tracker-c4e0c
+          projectId: plant-research-b106b
 
       - name: Deploy Firestore & Storage rules
         uses: w9jds/firebase-action@v13.23.1
         with:
-          args: deploy --only firestore:rules,storage --project plant-growth-tracker-c4e0c
+          args: deploy --only firestore:rules,storage --project plant-research-b106b
         env:
-          GCP_SA_KEY: ${{ secrets.FIREBASE_SERVICE_ACCOUNT_PLANT_GROWTH_TRACKER_C4E0C }}
+          GCP_SA_KEY: ${{ secrets.FIREBASE_SERVICE_ACCOUNT_PLANT_RESEARCH_B106B }}
