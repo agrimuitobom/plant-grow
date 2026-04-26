@@ -7,6 +7,7 @@ const emptyStrain = (index) => ({
   name: `${String.fromCharCode(65 + index)}株`,
   height: '',
   leafCount: '',
+  memo: '',
   photoPath: null,
   photoUrl: null,
 });
@@ -32,6 +33,7 @@ export default function RecordForm({ user, dateId, onSaved }) {
               name: s.name ?? s.id,
               height: s.height ?? '',
               leafCount: s.leafCount ?? '',
+              memo: s.memo ?? '',
               photoPath: s.photoPath ?? null,
               photoUrl: s.photoUrl ?? null,
             }))

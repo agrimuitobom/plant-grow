@@ -76,6 +76,8 @@ export async function saveRecord({ user, dateId, strains }) {
     name: s.name?.trim() || s.id,
     height: Number.isFinite(Number(s.height)) ? Number(s.height) : null,
     leafCount: Number.isFinite(Number(s.leafCount)) ? Number(s.leafCount) : null,
+    // 観察メモ。長文は Firestore の 1MB ドキュメント制限を圧迫するので 1000 字に丸める。
+    memo: typeof s.memo === 'string' ? s.memo.slice(0, 1000) : '',
     photoPath: s.photoPath ?? null,
     photoUrl: s.photoUrl ?? null,
   }));

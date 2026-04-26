@@ -1,7 +1,8 @@
 # 🌱 植物生育管理アプリ (MVP)
 
-学校の授業で、タブレットから複数の株の草丈・葉枚数・写真を記録するための Web アプリ。
-React (Vite) + Tailwind CSS + Firebase (Firestore + Storage + Google Auth) + Recharts。
+学校の授業で、タブレットから複数の株の草丈・葉枚数・写真・観察メモを記録するための Web アプリ。
+PWA としてホーム画面に追加でき、オフラインでも観察記録を続けられます。
+React (Vite + vite-plugin-pwa) + Tailwind CSS + Firebase (Firestore + Storage + Google Auth) + Recharts。
 
 ## セットアップ & デプロイ手順
 
@@ -89,7 +90,7 @@ firebase deploy
 ```
 classes/{classId}/students/{uid}/records/{YYYY-MM-DD}
   date:           "2026-04-20"
-  strains:        [{ id, name, height, leafCount, photoPath?, photoUrl? }]
+  strains:        [{ id, name, height, leafCount, memo, photoPath?, photoUrl? }]
   averages:       { height, leafCount }
   createdAt:      Timestamp           // 新規作成時のみ
   updatedAt:      Timestamp
@@ -118,6 +119,25 @@ classes/{classId}/students/{uid}/photos/{YYYY-MM-DD}/{strainId}-{timestamp}.jpg
 - 写真も生徒ごとのフォルダに分離。Rules で他人のフォルダへのアクセスを拒否。
 - レコード保存時に「直前の写真パス」と比較し、参照されなくなった画像は自動削除して
   Storage の使用量を肥大化させないようにしています。
+
+## PWA / ホーム画面追加
+
+`vite-plugin-pwa` で manifest と Service Worker を自動生成しています。
+
+- iPad Safari: 共有ボタン → 「ホーム画面に追加」で「植物観察」アプリとして追加可能。
+  起動時は Safari のアドレスバーが消え、`display: standalone` でアプリっぽく表示。
+- Android Chrome: 「ホーム画面に追加」のプロンプトが自動表示される。
+- Service Worker は静的アセットだけをキャッシュ。Firestore / Storage の API 通信は
+  Firebase 側の永続キャッシュ (IndexedDB) に任せ、SW 側ではバイパスしている。
+- `registerType: 'autoUpdate'` なので新版デプロイ時はバックグラウンドで更新される。
+
+### アイコンを差し替えたい場合
+
+1. `public/icon.svg` を編集（512x512 viewBox 想定）
+2. `npx pwa-assets-generator` を実行
+   - `public/pwa-{64,192,512}x{...}.png`, `apple-touch-icon-180x180.png`,
+     `maskable-icon-512x512.png`, `favicon.ico` が再生成される
+3. 生成されたファイルをコミットしてデプロイ
 
 ## スタイリング指針 (Tailwind)
 
