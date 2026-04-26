@@ -52,6 +52,24 @@ export type RecordDoc = {
   updatedByName: string;
 };
 
+/**
+ * クラス名簿エントリ。生徒が初めて記録を保存した時に upsert される。
+ * 教員ダッシュボードで生徒一覧を作るためのインデックスとして使う。
+ */
+export type RosterEntry = {
+  uid: string;
+  displayName: string;
+  email: string;
+  lastRecordedAt?: Timestamp | FieldValue;
+};
+
+/** 教員ドキュメント (Firebase Console から手動で追加する運用)。 */
+export type TeacherProfile = {
+  uid: string;
+  displayName: string;
+  email?: string;
+};
+
 export type ToastTone = 'success' | 'error' | 'info';
 
 export type ToastMessage = {
