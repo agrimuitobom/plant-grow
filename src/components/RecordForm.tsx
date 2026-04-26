@@ -1,28 +1,39 @@
-import React, { useEffect, useMemo, useState } from 'react';
+import { useEffect, useMemo, useState } from 'react';
+import type { User } from 'firebase/auth';
 import StrainRow from './StrainRow';
-import { calcAverages, fetchRecord, saveRecord } from '../lib/records';
+import { calcAverages, fetchRecord, saveRecord, type SaveRecordResult } from '../lib/records';
+import type { StrainFormValue } from '../types';
 
-const emptyStrain = (index) => ({
+const emptyStrain = (index: number): StrainFormValue => ({
   id: String.fromCharCode(65 + index),
   name: `${String.fromCharCode(65 + index)}株`,
   height: '',
   leafCount: '',
+  memo: '',
   photoPath: null,
   photoUrl: null,
 });
 
-const DEFAULT_STRAINS = [emptyStrain(0), emptyStrain(1), emptyStrain(2)];
+const DEFAULT_STRAINS: StrainFormValue[] = [emptyStrain(0), emptyStrain(1), emptyStrain(2)];
 
-export default function RecordForm({ dateId, onSaved }) {
-  const [strains, setStrains] = useState(DEFAULT_STRAINS);
-  const [status, setStatus] = useState('idle');
-  const [error, setError] = useState(null);
+type FormStatus = 'idle' | 'loading' | 'saving' | 'saved' | 'error';
+
+type RecordFormProps = {
+  user: User;
+  dateId: string;
+  onSaved?: (saved: SaveRecordResult) => void;
+};
+
+export default function RecordForm({ user, dateId, onSaved }: RecordFormProps) {
+  const [strains, setStrains] = useState<StrainFormValue[]>(DEFAULT_STRAINS);
+  const [status, setStatus] = useState<FormStatus>('idle');
+  const [error, setError] = useState<string | null>(null);
   const [uploadingCount, setUploadingCount] = useState(0);
 
   useEffect(() => {
     let cancelled = false;
     setStatus('loading');
-    fetchRecord(dateId)
+    fetchRecord(user.uid, dateId)
       .then((record) => {
         if (cancelled) return;
         if (record?.strains?.length) {
@@ -32,6 +43,7 @@ export default function RecordForm({ dateId, onSaved }) {
               name: s.name ?? s.id,
               height: s.height ?? '',
               leafCount: s.leafCount ?? '',
+              memo: s.memo ?? '',
               photoPath: s.photoPath ?? null,
               photoUrl: s.photoUrl ?? null,
             }))
@@ -41,23 +53,22 @@ export default function RecordForm({ dateId, onSaved }) {
         }
         setStatus('idle');
       })
-      .catch((e) => {
+      .catch((e: unknown) => {
         if (cancelled) return;
-        setError(e.message);
+        setError(e instanceof Error ? e.message : String(e));
         setStatus('error');
       });
     return () => {
       cancelled = true;
     };
-  }, [dateId]);
+  }, [user.uid, dateId]);
 
-  const handleUploadingChange = (isUploading) => {
+  const handleUploadingChange = (isUploading: boolean) => {
     setUploadingCount((n) => Math.max(0, n + (isUploading ? 1 : -1)));
   };
 
   const averages = useMemo(() => {
     const parsed = strains.map((s) => ({
-      ...s,
       height: s.height === '' ? null : Number(s.height),
       leafCount: s.leafCount === '' ? null : Number(s.leafCount),
     }));
@@ -68,25 +79,25 @@ export default function RecordForm({ dateId, onSaved }) {
     setStrains((prev) => [...prev, emptyStrain(prev.length)]);
   };
 
-  const removeStrain = (index) => {
+  const removeStrain = (index: number) => {
     setStrains((prev) => prev.filter((_, i) => i !== index));
   };
 
-  const updateStrain = (index, next) => {
+  const updateStrain = (index: number, next: StrainFormValue) => {
     setStrains((prev) => prev.map((s, i) => (i === index ? next : s)));
   };
 
-  const handleSubmit = async (e) => {
+  const handleSubmit = async (e: React.FormEvent<HTMLFormElement>) => {
     e.preventDefault();
     setStatus('saving');
     setError(null);
     try {
-      const saved = await saveRecord({ dateId, strains });
+      const saved = await saveRecord({ user, dateId, strains });
       setStatus('saved');
       onSaved?.(saved);
       setTimeout(() => setStatus('idle'), 1500);
-    } catch (err) {
-      setError(err.message);
+    } catch (err: unknown) {
+      setError(err instanceof Error ? err.message : String(err));
       setStatus('error');
     }
   };
@@ -105,6 +116,7 @@ export default function RecordForm({ dateId, onSaved }) {
           <StrainRow
             key={`${s.id}-${i}`}
             strain={s}
+            uid={user.uid}
             dateId={dateId}
             onChange={(next) => updateStrain(i, next)}
             onRemove={() => removeStrain(i)}

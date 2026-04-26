@@ -1,19 +1,23 @@
-import React, { useCallback, useEffect, useState } from 'react';
+import { useCallback, useEffect, useState } from 'react';
+import type { User } from 'firebase/auth';
 import DatePickerCard from './components/DatePickerCard';
 import GrowthChart from './components/GrowthChart';
 import RecordForm from './components/RecordForm';
 import SignInScreen from './components/SignInScreen';
 import Toast from './components/Toast';
 import { signOutUser, subscribeToAuth } from './lib/firebase';
-import { fetchAllRecords, toDateId } from './lib/records';
+import { fetchAllRecords, toDateId, type SaveRecordResult } from './lib/records';
+import type { RecordDoc, ToastMessage } from './types';
+
+type AuthState = { status: 'loading'; user: null } | { status: 'ready'; user: User | null };
 
 export default function App() {
-  const [authState, setAuthState] = useState({ status: 'loading', user: null });
-  const [selectedDate, setSelectedDate] = useState(() => toDateId(new Date()));
-  const [records, setRecords] = useState([]);
-  const [loadError, setLoadError] = useState(null);
-  const [toast, setToast] = useState(null);
-  const [isOnline, setIsOnline] = useState(() =>
+  const [authState, setAuthState] = useState<AuthState>({ status: 'loading', user: null });
+  const [selectedDate, setSelectedDate] = useState<string>(() => toDateId(new Date()));
+  const [records, setRecords] = useState<RecordDoc[]>([]);
+  const [loadError, setLoadError] = useState<string | null>(null);
+  const [toast, setToast] = useState<ToastMessage | null>(null);
+  const [isOnline, setIsOnline] = useState<boolean>(() =>
     typeof navigator === 'undefined' ? true : navigator.onLine
   );
 
@@ -33,27 +37,39 @@ export default function App() {
     });
   }, []);
 
+  const uid = authState.user?.uid;
   const reload = useCallback(async () => {
+    if (!uid) return;
     try {
-      const all = await fetchAllRecords();
+      const all = await fetchAllRecords(uid);
       setRecords(all);
-    } catch (e) {
-      setLoadError(e.message);
+    } catch (e: unknown) {
+      setLoadError(e instanceof Error ? e.message : String(e));
     }
-  }, []);
+  }, [uid]);
 
   useEffect(() => {
-    if (authState.user) {
+    if (uid) {
       reload();
     } else {
       setRecords([]);
     }
-  }, [authState.user, reload]);
+  }, [uid, reload]);
 
-  const handleSaved = (saved) => {
+  const handleSaved = (saved: SaveRecordResult) => {
     setRecords((prev) => {
       const others = prev.filter((r) => r.date !== saved.date);
-      return [...others, saved].sort((a, b) => a.date.localeCompare(b.date));
+      // SaveRecordResult は averages を持つ最低限の RecordDoc 互換。
+      // 監査フィールドは reload 時に取り直されるので、ここでは画面表示用の最小値で十分。
+      const next: RecordDoc = {
+        date: saved.date,
+        strains: saved.strains,
+        averages: saved.averages,
+        createdBy: uid ?? '',
+        updatedBy: uid ?? '',
+        updatedByName: '',
+      };
+      return [...others, next].sort((a, b) => a.date.localeCompare(b.date));
     });
     // iPad Safari は Vibration API 非対応だが、Android タブレットや Chromebook では震える。
     if (typeof navigator !== 'undefined' && typeof navigator.vibrate === 'function') {
@@ -86,7 +102,9 @@ export default function App() {
       <header className="mx-auto mb-8 flex max-w-5xl flex-wrap items-center justify-between gap-3">
         <div>
           <h1 className="text-3xl font-bold text-leaf-700">🌱 植物生育管理</h1>
-          <p className="text-sm text-slate-500">タブレットで観察記録</p>
+          <p className="text-sm text-slate-500">
+            {user.displayName ? `${user.displayName} さんの観察記録` : 'タブレットで観察記録'}
+          </p>
         </div>
         <div className="flex items-center gap-3">
           {!isOnline && (
@@ -125,7 +143,7 @@ export default function App() {
           recordedDates={records.map((r) => r.date)}
         />
 
-        <RecordForm dateId={selectedDate} onSaved={handleSaved} />
+        <RecordForm user={user} dateId={selectedDate} onSaved={handleSaved} />
 
         <GrowthChart records={records} />
       </main>

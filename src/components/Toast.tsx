@@ -1,12 +1,18 @@
-import React, { useEffect } from 'react';
+import { useEffect } from 'react';
+import type { ToastMessage, ToastTone } from '../types';
 
-const TONE_CLASS = {
+const TONE_CLASS: Record<ToastTone, string> = {
   success: 'bg-leaf-600 text-white',
   error: 'bg-red-600 text-white',
   info: 'bg-slate-800 text-white',
 };
 
-export default function Toast({ toast, onDismiss }) {
+type ToastProps = {
+  toast: ToastMessage | null;
+  onDismiss: () => void;
+};
+
+export default function Toast({ toast, onDismiss }: ToastProps) {
   useEffect(() => {
     if (!toast) return undefined;
     const id = setTimeout(onDismiss, toast.duration ?? 2500);

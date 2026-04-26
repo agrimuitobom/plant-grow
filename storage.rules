@@ -12,12 +12,17 @@ service firebase.storage {
         && request.auth.token.firebase.sign_in_provider != 'anonymous';
     }
 
-    match /classes/{classId}/photos/{dateId}/{fileName} {
-      allow read: if isSignedIn();
-      allow write: if isSignedIn()
+    function isOwner(userId) {
+      return isSignedIn() && request.auth.uid == userId;
+    }
+
+    // 写真も生徒ごとのフォルダに保存し、自分のフォルダしか触れないようにする。
+    match /classes/{classId}/students/{userId}/photos/{dateId}/{fileName} {
+      allow read: if isOwner(userId);
+      allow write: if isOwner(userId)
         && request.resource.size < 5 * 1024 * 1024
         && request.resource.contentType.matches('image/.*');
-      allow delete: if isSignedIn();
+      allow delete: if isOwner(userId);
     }
 
     // それ以外は全拒否
