@@ -5,8 +5,8 @@ import {
   getDocs,
   orderBy,
   query,
+  runTransaction,
   serverTimestamp,
-  setDoc,
 } from 'firebase/firestore';
 import { db, CLASS_ID } from './firebase';
 
@@ -69,16 +69,21 @@ export async function saveRecord({ dateId, strains }) {
     leafCount: Number.isFinite(Number(s.leafCount)) ? Number(s.leafCount) : null,
   }));
   const averages = calcAverages(cleanStrains);
-  await setDoc(
-    recordDoc(dateId),
-    {
+  const ref = recordDoc(dateId);
+  // createdAt は新規作成時のみ書き込み、更新時は updatedAt のみ差し替える。
+  await runTransaction(db, async (tx) => {
+    const snap = await tx.get(ref);
+    const payload = {
       date: dateId,
       strains: cleanStrains,
       averages,
       updatedAt: serverTimestamp(),
-      createdAt: serverTimestamp(),
-    },
-    { merge: true }
-  );
+    };
+    if (snap.exists()) {
+      tx.update(ref, payload);
+    } else {
+      tx.set(ref, { ...payload, createdAt: serverTimestamp() });
+    }
+  });
   return { date: dateId, strains: cleanStrains, averages };
 }
