@@ -168,6 +168,25 @@ classes/{classId}/students/{uid}/photos/{YYYY-MM-DD}/{strainId}-{timestamp}.jpg
      `maskable-icon-512x512.png`, `favicon.ico` が再生成される
 3. 生成されたファイルをコミットしてデプロイ
 
+## テスト
+
+```bash
+# 純粋関数の単体テスト (csv / categories / records)
+npm test
+
+# Firestore Rules テスト (要 Firestore Emulator + Java 17+)
+# 実行時に自動でエミュレータを起動・停止する
+npm run test:rules
+```
+
+- **単体テスト** (`src/**/*.test.ts`): Vitest。Firebase SDK は `tests/setup.ts` で
+  モックしており、純粋関数のロジックだけを高速に検証する。
+- **Rules テスト** (`tests/rules.test.ts`): `@firebase/rules-unit-testing` 経由で
+  実 Firestore Emulator に対して評価。「他生徒の記録は読めない」「教員は読めるが
+  書けない」「教員は自分自身を解除できない」など境界条件を機械検証する。
+  CI に組み込む場合は `firebase emulators:exec` でラップしているので
+  Java 17 以上が入った runner なら追加設定不要。
+
 ## スタイリング指針 (Tailwind)
 
 - タッチ前提: ボタン `min-h: 56px` / `text-tap (1.25rem)` / `rounded-2xl`
