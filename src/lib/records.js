@@ -5,8 +5,8 @@ import {
   getDocs,
   orderBy,
   query,
-  runTransaction,
   serverTimestamp,
+  setDoc,
 } from 'firebase/firestore';
 import { db, CLASS_ID } from './firebase';
 import { deleteStrainPhoto } from './storage';
@@ -76,26 +76,28 @@ export async function saveRecord({ dateId, strains }) {
   }));
   const averages = calcAverages(cleanStrains);
   const ref = recordDoc(dateId);
-  let previousPaths = [];
-  // createdAt は新規作成時のみ書き込み、更新時は updatedAt のみ差し替える。
-  await runTransaction(db, async (tx) => {
-    const snap = await tx.get(ref);
-    previousPaths = snap.exists() ? photoPathsOf(snap.data().strains) : [];
-    const payload = {
-      date: dateId,
-      strains: cleanStrains,
-      averages,
-      updatedAt: serverTimestamp(),
-    };
-    if (snap.exists()) {
-      tx.update(ref, payload);
-    } else {
-      tx.set(ref, { ...payload, createdAt: serverTimestamp() });
-    }
-  });
 
-  // 直前のレコードに含まれていたが、新しい strains には残っていない写真は孤立する。
-  // Storage の無料枠を圧迫しないよう保存後に掃除する (失敗してもユーザーには影響しない)。
+  // runTransaction はオフライン時に失敗するため使えない。
+  // 永続キャッシュ越しの getDoc + setDoc(merge) で代替する。
+  // - getDoc: オフライン時はローカルキャッシュにフォールバック
+  // - setDoc: オフライン時は writePendingQueue に積まれ、復帰後に同期される
+  // - createdAt は新規作成判定の時だけ含める
+  const snap = await getDoc(ref);
+  const previousPaths = snap.exists() ? photoPathsOf(snap.data().strains) : [];
+
+  const payload = {
+    date: dateId,
+    strains: cleanStrains,
+    averages,
+    updatedAt: serverTimestamp(),
+  };
+  if (!snap.exists()) {
+    payload.createdAt = serverTimestamp();
+  }
+  await setDoc(ref, payload, { merge: true });
+
+  // 参照されなくなった写真は削除して Storage を肥大化させない。
+  // Storage はオフラインキューを持たないので、ここはネットがある時しか動かない。失敗は許容。
   const keptPaths = new Set(photoPathsOf(cleanStrains));
   const orphans = previousPaths.filter((p) => !keptPaths.has(p));
   await Promise.all(orphans.map((p) => deleteStrainPhoto(p).catch(() => {})));

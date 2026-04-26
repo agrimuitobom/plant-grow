@@ -3,6 +3,7 @@ import DatePickerCard from './components/DatePickerCard';
 import GrowthChart from './components/GrowthChart';
 import RecordForm from './components/RecordForm';
 import SignInScreen from './components/SignInScreen';
+import Toast from './components/Toast';
 import { signOutUser, subscribeToAuth } from './lib/firebase';
 import { fetchAllRecords, toDateId } from './lib/records';
 
@@ -11,6 +12,20 @@ export default function App() {
   const [selectedDate, setSelectedDate] = useState(() => toDateId(new Date()));
   const [records, setRecords] = useState([]);
   const [loadError, setLoadError] = useState(null);
+  const [toast, setToast] = useState(null);
+  const [isOnline, setIsOnline] = useState(() =>
+    typeof navigator === 'undefined' ? true : navigator.onLine
+  );
+
+  useEffect(() => {
+    const update = () => setIsOnline(navigator.onLine);
+    window.addEventListener('online', update);
+    window.addEventListener('offline', update);
+    return () => {
+      window.removeEventListener('online', update);
+      window.removeEventListener('offline', update);
+    };
+  }, []);
 
   useEffect(() => {
     return subscribeToAuth((user) => {
@@ -40,6 +55,16 @@ export default function App() {
       const others = prev.filter((r) => r.date !== saved.date);
       return [...others, saved].sort((a, b) => a.date.localeCompare(b.date));
     });
+    // iPad Safari は Vibration API 非対応だが、Android タブレットや Chromebook では震える。
+    if (typeof navigator !== 'undefined' && typeof navigator.vibrate === 'function') {
+      navigator.vibrate(60);
+    }
+    setToast({
+      tone: 'success',
+      message: navigator.onLine
+        ? `${saved.date} の記録を保存しました ✓`
+        : `${saved.date} の記録を端末に保存しました（オンライン復帰時に自動同期）`,
+    });
   };
 
   if (authState.status === 'loading') {
@@ -64,6 +89,14 @@ export default function App() {
           <p className="text-sm text-slate-500">タブレットで観察記録</p>
         </div>
         <div className="flex items-center gap-3">
+          {!isOnline && (
+            <span
+              className="rounded-full bg-amber-100 px-3 py-1 text-xs font-semibold text-amber-800"
+              title="通信が切れています。入力は端末に保留され、オンライン復帰時に自動同期されます。"
+            >
+              ● オフライン
+            </span>
+          )}
           {user.photoURL && (
             <img
               src={user.photoURL}
@@ -100,6 +133,8 @@ export default function App() {
       <footer className="mx-auto mt-10 max-w-5xl text-center text-xs text-slate-400">
         MVP build — {new Date().getFullYear()}
       </footer>
+
+      <Toast toast={toast} onDismiss={() => setToast(null)} />
     </div>
   );
 }

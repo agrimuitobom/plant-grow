@@ -6,7 +6,11 @@ import {
   signInWithPopup,
   signOut,
 } from 'firebase/auth';
-import { getFirestore } from 'firebase/firestore';
+import {
+  initializeFirestore,
+  persistentLocalCache,
+  persistentMultipleTabManager,
+} from 'firebase/firestore';
 import { getStorage } from 'firebase/storage';
 
 // これらの値は「公開しても安全」な識別子 (アクセス制御は firestore.rules 側で実施)。
@@ -23,7 +27,12 @@ const firebaseConfig = {
 export const CLASS_ID = import.meta.env.VITE_CLASS_ID || 'class-demo';
 
 export const app = initializeApp(firebaseConfig);
-export const db = getFirestore(app);
+// IndexedDB ベースの永続キャッシュを有効化。授業中に Wi-Fi が切れても
+// 書き込みは端末に保留され、復帰後に自動同期される。
+// 利用不可な環境 (プライベートブラウジング等) では自動的にメモリキャッシュにフォールバック。
+export const db = initializeFirestore(app, {
+  localCache: persistentLocalCache({ tabManager: persistentMultipleTabManager() }),
+});
 export const auth = getAuth(app);
 export const storage = getStorage(app);
 
