@@ -24,15 +24,18 @@ type RecordFormProps = {
   user: User;
   dateId: string;
   onSaved?: (saved: SaveRecordResult) => void;
-  /** 過去レコードから集めた品目候補。フォームの datalist に流す。 */
-  categorySuggestions?: string[];
+  /** 登録済みの品目リスト。プルダウンに並ぶ。 */
+  registeredCategories?: string[];
+  /** プルダウンから「新しい品目を追加」したときの永続化ハンドラ。 */
+  onAddCategory?: (name: string) => void | Promise<void>;
 };
 
 export default function RecordForm({
   user,
   dateId,
   onSaved,
-  categorySuggestions = [],
+  registeredCategories = [],
+  onAddCategory,
 }: RecordFormProps) {
   const [strains, setStrains] = useState<StrainFormValue[]>(DEFAULT_STRAINS);
   const [status, setStatus] = useState<FormStatus>('idle');
@@ -148,7 +151,8 @@ export default function RecordForm({
             onRemove={() => removeStrain(i)}
             canRemove={strains.length > 1}
             onUploadingChange={handleUploadingChange}
-            categorySuggestions={categorySuggestions}
+            registeredCategories={registeredCategories}
+            onAddCategory={onAddCategory}
           />
         ))}
       </div>
