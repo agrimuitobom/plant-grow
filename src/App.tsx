@@ -5,6 +5,7 @@ import ExportCsvButton from './components/ExportCsvButton';
 import GrowthChart from './components/GrowthChart';
 import PhotoTimeline from './components/PhotoTimeline';
 import RecordForm from './components/RecordForm';
+import RecordsList from './components/RecordsList';
 import SignInScreen from './components/SignInScreen';
 import Toast from './components/Toast';
 import { categorySuggestions } from './lib/categories';
@@ -162,6 +163,12 @@ export default function App() {
         </div>
 
         <GrowthChart records={records} />
+
+        <RecordsList
+          records={records}
+          selectedDate={selectedDate}
+          onSelectDate={setSelectedDate}
+        />
 
         <PhotoTimeline records={records} />
       </main>
