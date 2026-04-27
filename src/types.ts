@@ -61,6 +61,8 @@ export type RosterEntry = {
   displayName: string;
   email: string;
   lastRecordedAt?: Timestamp | FieldValue;
+  /** 登録済み品目リスト。フォームの品目プルダウンに並ぶ。 */
+  categories?: string[];
 };
 
 /** 教員ドキュメント (Firebase Console から手動で追加する運用)。 */

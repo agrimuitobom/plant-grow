@@ -42,11 +42,18 @@ service cloud.firestore {
         && exists(/databases/$(database)/documents/classes/$(classId)/teachers/$(request.auth.uid));
     }
 
-    // 教員ドキュメント (Firebase Console から手動で seed)。
-    // クライアントは「自分が教員か」を判定するために read だけ許可する。
+    // 教員ドキュメント。
+    // - 最初の 1 人は Firebase Console から手動で seed する必要がある (chicken-and-egg)。
+    // - 一度教員ができれば、その教員が他のユーザを教員に昇格・解除できる。
+    // - 自分自身を解除する操作は禁止 (誤操作で全教員不在を防ぐ)。
+    // - 任意のサインイン済みユーザに read を許可しているのは、自分が教員か検出するため。
     match /classes/{classId}/teachers/{teacherId} {
       allow read: if isSignedIn();
-      allow write: if false;
+      allow create: if isTeacher(classId)
+        && request.resource.data.uid == teacherId
+        && request.resource.data.keys().hasAll(['uid', 'displayName']);
+      allow delete: if isTeacher(classId) && request.auth.uid != teacherId;
+      allow update: if false;
     }
 
     // クラス名簿。生徒は自分のエントリだけ upsert でき、
@@ -68,6 +75,14 @@ service cloud.firestore {
         && isValidRecord(request.resource.data)
         && hasAuditFields(request.resource.data, userId);
       allow delete: if false; // 誤操作防止のため UI では削除させない
+
+      // 編集履歴: 上書き保存の直前にスナップショットを残す。
+      // 不変アーカイブとして create のみ許可、update/delete はクライアントから不可。
+      match /history/{historyId} {
+        allow read: if isOwner(userId) || isTeacher(classId);
+        allow create: if isOwner(userId);
+        allow update, delete: if false;
+      }
     }
 
     // それ以外は全拒否 (デフォルト)

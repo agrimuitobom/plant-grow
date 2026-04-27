@@ -1,5 +1,6 @@
 import { useCallback, useEffect, useMemo, useState } from 'react';
 import type { User } from 'firebase/auth';
+import CategoryManager from './components/CategoryManager';
 import DatePickerCard from './components/DatePickerCard';
 import ExportCsvButton from './components/ExportCsvButton';
 import GrowthChart from './components/GrowthChart';
@@ -9,7 +10,11 @@ import RecordsList from './components/RecordsList';
 import SignInScreen from './components/SignInScreen';
 import TeacherDashboard from './components/TeacherDashboard';
 import Toast from './components/Toast';
-import { categorySuggestions } from './lib/categories';
+import {
+  categorySuggestions,
+  fetchRegisteredCategories,
+  saveRegisteredCategories,
+} from './lib/categories';
 import { signOutUser, subscribeToAuth } from './lib/firebase';
 import { fetchAllRecords, toDateId, type SaveRecordResult } from './lib/records';
 import { fetchTeacherProfile } from './lib/teacher';
@@ -30,6 +35,7 @@ export default function App() {
   const [teacherProfile, setTeacherProfile] = useState<TeacherProfile | null>(null);
   // 教員ログイン時はクラス全体ビューを既定表示にする。
   const [viewMode, setViewMode] = useState<ViewMode>('self');
+  const [registeredCategories, setRegisteredCategories] = useState<string[]>([]);
 
   useEffect(() => {
     const update = () => setIsOnline(navigator.onLine);
@@ -91,7 +97,41 @@ export default function App() {
     }
   }, [uid, reload]);
 
-  const knownCategories = useMemo(() => categorySuggestions(records), [records]);
+  // 登録済み品目を Firestore から取得。失敗時は空のままにしてフォームを止めない。
+  useEffect(() => {
+    if (!uid) {
+      setRegisteredCategories([]);
+      return;
+    }
+    let cancelled = false;
+    fetchRegisteredCategories(uid)
+      .then((list) => {
+        if (!cancelled) setRegisteredCategories(list);
+      })
+      .catch(() => {});
+    return () => {
+      cancelled = true;
+    };
+  }, [uid]);
+
+  const usedCategoriesInRecords = useMemo(() => categorySuggestions(records), [records]);
+
+  const persistCategories = useCallback(
+    async (next: string[]): Promise<void> => {
+      if (!authState.user) return;
+      const saved = await saveRegisteredCategories(authState.user, next);
+      setRegisteredCategories(saved);
+    },
+    [authState.user]
+  );
+
+  const handleAddCategoryFromRow = useCallback(
+    async (name: string) => {
+      if (registeredCategories.includes(name)) return;
+      await persistCategories([...registeredCategories, name]);
+    },
+    [registeredCategories, persistCategories]
+  );
 
   const handleSaved = (saved: SaveRecordResult) => {
     setRecords((prev) => {
@@ -206,7 +246,7 @@ export default function App() {
 
       <main className="mx-auto flex max-w-5xl flex-col gap-6">
         {showTeacherView ? (
-          <TeacherDashboard />
+          <TeacherDashboard currentUid={user.uid} />
         ) : (
           <>
             {loadError && (
@@ -219,11 +259,18 @@ export default function App() {
               recordedDates={records.map((r) => r.date)}
             />
 
+            <CategoryManager
+              categories={registeredCategories}
+              usedInRecords={usedCategoriesInRecords}
+              onChange={persistCategories}
+            />
+
             <RecordForm
               user={user}
               dateId={selectedDate}
               onSaved={handleSaved}
-              categorySuggestions={knownCategories}
+              registeredCategories={registeredCategories}
+              onAddCategory={handleAddCategoryFromRow}
             />
 
             <div className="flex justify-end">

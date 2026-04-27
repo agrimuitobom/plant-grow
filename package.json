@@ -8,6 +8,9 @@
     "build": "tsc --noEmit && vite build",
     "preview": "vite preview",
     "typecheck": "tsc --noEmit",
+    "test": "vitest run",
+    "test:watch": "vitest",
+    "test:rules": "firebase emulators:exec --only firestore --project plant-grow-test 'vitest run --config vitest.rules.config.ts'",
     "deploy": "npm run build && firebase deploy --only hosting"
   },
   "dependencies": {
@@ -18,15 +21,19 @@
     "recharts": "^2.12.7"
   },
   "devDependencies": {
+    "@firebase/rules-unit-testing": "^3.0.4",
     "@types/react": "^18.3.28",
     "@types/react-dom": "^18.3.7",
     "@vite-pwa/assets-generator": "^1.0.2",
     "@vitejs/plugin-react": "^4.3.1",
+    "@vitest/ui": "^4.1.5",
     "autoprefixer": "^10.4.19",
+    "firebase-tools": "^15.15.0",
     "postcss": "^8.4.39",
     "tailwindcss": "^3.4.6",
     "typescript": "^6.0.3",
     "vite": "^5.3.4",
-    "vite-plugin-pwa": "^1.2.0"
+    "vite-plugin-pwa": "^1.2.0",
+    "vitest": "^4.1.5"
   }
 }

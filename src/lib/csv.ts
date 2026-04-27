@@ -19,7 +19,8 @@ export function recordsToCsv(records: RecordDoc[]): string {
       rows.push([
         r.date,
         s.category ?? '',
-        s.name ?? s.id,
+        // saveRecord 側でも空文字を id にフォールバックさせているのでここでも揃える。
+        s.name || s.id,
         s.height == null ? '' : String(s.height),
         s.leafCount == null ? '' : String(s.leafCount),
         s.photoUrl ?? '',

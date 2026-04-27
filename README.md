@@ -83,15 +83,16 @@ firebase deploy
   `request.auth.uid == userId` を要求しているので、他人のレコードや写真には触れません。
 - レコードに `createdBy` / `updatedBy` を保存して、後からのクラス横断ビューや監査に備えています。
 - `firestore.rules` / `storage.rules` の双方で匿名認証を明示的に拒否しています。
-- 校内利用に限定したい場合は、Rules でメールドメインを判定する条件
-  （例: `request.auth.token.email.matches('.*@example-school\\.ac\\.jp$')`）を追加してください。
+- 個人 Google アカウント (gmail.com など) を含めて、Google ログインできるユーザは
+  全員が自分の領域に書き込み可能です。校内アカウントに絞りたい場合は Rules 側で
+  `request.auth.token.email.matches('.*@example-school\\.ac\\.jp$')` を追加してください。
 
 ## Firestore スキーマ
 
 ```
 classes/{classId}/students/{uid}/records/{YYYY-MM-DD}
   date:           "2026-04-20"
-  strains:        [{ id, name, height, leafCount, memo, photoPath?, photoUrl? }]
+  strains:        [{ id, category?, name, height, leafCount, memo, photoPath?, photoUrl? }]
   averages:       { height, leafCount }
   createdAt:      Timestamp           // 新規作成時のみ
   updatedAt:      Timestamp
@@ -99,6 +100,13 @@ classes/{classId}/students/{uid}/records/{YYYY-MM-DD}
   createdByName:  displayName         // 表示用キャッシュ (新規作成時)
   updatedBy:      uid
   updatedByName:  displayName
+
+classes/{classId}/students/{uid}/records/{YYYY-MM-DD}/history/{ISO8601}
+  // 上書き保存の直前バージョンをアーカイブ。書き込みは create のみ (Rules で update/delete 禁止)。
+  ...record と同じフィールド,
+  snapshotAt:     Timestamp
+  snapshotBy:     uid
+  snapshotByName: displayName
 ```
 
 - 「クラス × 生徒 × 日付」の 3 軸で 1 レコードに正規化。
@@ -164,6 +172,25 @@ classes/{classId}/students/{uid}/photos/{YYYY-MM-DD}/{strainId}-{timestamp}.jpg
    - `public/pwa-{64,192,512}x{...}.png`, `apple-touch-icon-180x180.png`,
      `maskable-icon-512x512.png`, `favicon.ico` が再生成される
 3. 生成されたファイルをコミットしてデプロイ
+
+## テスト
+
+```bash
+# 純粋関数の単体テスト (csv / categories / records)
+npm test
+
+# Firestore Rules テスト (要 Firestore Emulator + Java 17+)
+# 実行時に自動でエミュレータを起動・停止する
+npm run test:rules
+```
+
+- **単体テスト** (`src/**/*.test.ts`): Vitest。Firebase SDK は `tests/setup.ts` で
+  モックしており、純粋関数のロジックだけを高速に検証する。
+- **Rules テスト** (`tests/rules.test.ts`): `@firebase/rules-unit-testing` 経由で
+  実 Firestore Emulator に対して評価。「他生徒の記録は読めない」「教員は読めるが
+  書けない」「教員は自分自身を解除できない」など境界条件を機械検証する。
+  CI に組み込む場合は `firebase emulators:exec` でラップしているので
+  Java 17 以上が入った runner なら追加設定不要。
 
 ## スタイリング指針 (Tailwind)
 

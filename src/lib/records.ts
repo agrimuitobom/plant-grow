@@ -7,6 +7,7 @@ import {
   query,
   serverTimestamp,
   setDoc,
+  type Timestamp,
 } from 'firebase/firestore';
 import type { User } from 'firebase/auth';
 import { db, CLASS_ID } from './firebase';
@@ -70,6 +71,25 @@ export async function fetchAllRecords(uid: string): Promise<RecordDoc[]> {
   return snap.docs.map((d) => d.data() as RecordDoc);
 }
 
+/** 編集履歴の 1 エントリ。RecordDoc に snapshotAt/By が乗っただけ。 */
+export type HistorySnapshot = RecordDoc & {
+  id: string;
+  snapshotAt?: Timestamp;
+  snapshotBy?: string;
+  snapshotByName?: string;
+};
+
+/** 指定日のレコードに紐づく履歴を新しい順で返す。 */
+export async function fetchRecordHistory(
+  uid: string,
+  dateId: string
+): Promise<HistorySnapshot[]> {
+  const ref = recordDoc(uid, dateId);
+  const q = query(collection(ref, 'history'), orderBy('snapshotAt', 'desc'));
+  const snap = await getDocs(q);
+  return snap.docs.map((d) => ({ id: d.id, ...(d.data() as RecordDoc) }) as HistorySnapshot);
+}
+
 const photoPathsOf = (strains: Strain[] | undefined): string[] =>
   (strains ?? []).map((s) => s?.photoPath).filter((p): p is string => Boolean(p));
 
@@ -115,6 +135,21 @@ export async function saveRecord({
   const previousPaths = snap.exists()
     ? photoPathsOf((snap.data() as RecordDoc).strains)
     : [];
+
+  // 上書き保存の前に直前バージョンを history サブコレクションに残す。
+  // doc id は ISO タイムスタンプ (辞書順 = 時系列) にする。
+  if (snap.exists()) {
+    const prev = snap.data() as RecordDoc;
+    const historyId = new Date().toISOString().replace(/[:.]/g, '-');
+    await setDoc(doc(collection(ref, 'history'), historyId), {
+      ...prev,
+      snapshotAt: serverTimestamp(),
+      snapshotBy: user.uid,
+      snapshotByName: displayName,
+    }).catch(() => {
+      // 履歴は補助情報なので失敗しても本体保存は止めない。
+    });
+  }
 
   const payload: Record<string, unknown> = {
     date: dateId,

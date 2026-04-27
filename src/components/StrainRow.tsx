@@ -10,11 +10,18 @@ type StrainRowProps = {
   onRemove: () => void;
   canRemove: boolean;
   onUploadingChange?: (isUploading: boolean) => void;
-  /** 過去に使われた品目候補 (datalist によるサジェスト用)。 */
-  categorySuggestions?: string[];
+  /** 登録済み品目 (プルダウンに並ぶ)。 */
+  registeredCategories?: string[];
+  /**
+   * プルダウンに無い品目をその場で追加するハンドラ。
+   * 未指定ならフォールバック用のテキスト入力に切り替わる。
+   */
+  onAddCategory?: (name: string) => void | Promise<void>;
 };
 
 type PhotoStatus = 'idle' | 'uploading';
+
+const ADD_NEW = '__ADD_NEW__';
 
 export default function StrainRow({
   strain,
@@ -24,10 +31,39 @@ export default function StrainRow({
   onRemove,
   canRemove,
   onUploadingChange,
-  categorySuggestions = [],
+  registeredCategories = [],
+  onAddCategory,
 }: StrainRowProps) {
-  // 同一フォーム内に複数 StrainRow が並んでも datalist の id が衝突しないように株 id を含める。
-  const categoryListId = `cat-suggest-${strain.id}`;
+  const [adding, setAdding] = useState(false);
+  const [newCategoryDraft, setNewCategoryDraft] = useState('');
+  // 既存レコードに登録外の品目が入っていても表示できるよう、現在値が未登録なら下部に option 追加。
+  const currentMissing =
+    strain.category && !registeredCategories.includes(strain.category)
+      ? strain.category
+      : null;
+
+  const handleCategorySelect = (value: string) => {
+    if (value === ADD_NEW) {
+      setAdding(true);
+      setNewCategoryDraft('');
+      return;
+    }
+    update('category', value);
+  };
+
+  const commitNewCategory = async () => {
+    const name = newCategoryDraft.trim();
+    if (!name) {
+      setAdding(false);
+      return;
+    }
+    if (onAddCategory) {
+      await onAddCategory(name);
+    }
+    update('category', name);
+    setNewCategoryDraft('');
+    setAdding(false);
+  };
   const [photoStatus, setPhotoStatus] = useState<PhotoStatus>('idle');
   const [photoError, setPhotoError] = useState<string | null>(null);
 
@@ -81,20 +117,52 @@ export default function StrainRow({
       <div className="flex flex-col gap-4 md:flex-row md:items-end">
         <div className="md:w-32">
           <label className="block text-sm font-medium text-slate-500">品目</label>
-          <input
-            type="text"
-            inputMode="text"
-            value={strain.category}
-            list={categoryListId}
-            onChange={(e) => update('category', e.target.value)}
-            placeholder="例: トマト"
-          />
-          {categorySuggestions.length > 0 && (
-            <datalist id={categoryListId}>
-              {categorySuggestions.map((c) => (
-                <option key={c} value={c} />
+          {adding ? (
+            <div className="mt-1 flex gap-1">
+              <input
+                type="text"
+                autoFocus
+                value={newCategoryDraft}
+                onChange={(e) => setNewCategoryDraft(e.target.value)}
+                onKeyDown={(e) => {
+                  if (e.key === 'Enter') {
+                    e.preventDefault();
+                    commitNewCategory();
+                  } else if (e.key === 'Escape') {
+                    setAdding(false);
+                  }
+                }}
+                placeholder="例: トマト"
+                maxLength={40}
+                className="!min-h-0 !py-2 flex-1"
+              />
+              <button
+                type="button"
+                onClick={commitNewCategory}
+                className="btn-secondary !min-h-0 !px-3 !py-2 text-xs"
+              >
+                追加
+              </button>
+            </div>
+          ) : (
+            <select
+              value={strain.category}
+              onChange={(e) => handleCategorySelect(e.target.value)}
+              className="mt-1 w-full rounded-xl border-2 border-slate-200 bg-white px-3 py-3 text-tap focus:border-leaf-500 focus:outline-none"
+            >
+              <option value="">— 未分類 —</option>
+              {registeredCategories.map((c) => (
+                <option key={c} value={c}>
+                  {c}
+                </option>
               ))}
-            </datalist>
+              {currentMissing && (
+                <option value={currentMissing}>{currentMissing} (未登録)</option>
+              )}
+              {onAddCategory && (
+                <option value={ADD_NEW}>+ 新しい品目を追加…</option>
+              )}
+            </select>
           )}
         </div>
 
