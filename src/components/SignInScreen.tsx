@@ -1,14 +1,9 @@
 import { useState } from 'react';
-import { ALLOWED_EMAIL_DOMAINS, signInWithGoogle } from '../lib/firebase';
+import { signInWithGoogle } from '../lib/firebase';
 
 type Status = 'idle' | 'loading' | 'error';
 
-type SignInScreenProps = {
-  /** 直前のサインイン試行で拒否された場合の理由 (例: ドメイン不一致)。 */
-  notice?: string | null;
-};
-
-export default function SignInScreen({ notice }: SignInScreenProps) {
+export default function SignInScreen() {
   const [status, setStatus] = useState<Status>('idle');
   const [error, setError] = useState<string | null>(null);
 
@@ -35,11 +30,6 @@ export default function SignInScreen({ notice }: SignInScreenProps) {
         <p className="mt-3 text-slate-500">
           観察記録を始めるには、Google アカウントでログインしてください。
         </p>
-        {ALLOWED_EMAIL_DOMAINS.length > 0 && (
-          <p className="mt-2 text-xs text-slate-400">
-            利用可能ドメイン: {ALLOWED_EMAIL_DOMAINS.map((d) => `@${d}`).join(' / ')}
-          </p>
-        )}
         <button
           type="button"
           onClick={handleSignIn}
@@ -48,14 +38,6 @@ export default function SignInScreen({ notice }: SignInScreenProps) {
         >
           {status === 'loading' ? 'ログイン中…' : 'Google でログイン'}
         </button>
-        {notice && (
-          <p
-            role="alert"
-            className="mt-4 rounded-xl bg-amber-50 px-3 py-2 text-sm text-amber-800"
-          >
-            {notice}
-          </p>
-        )}
         {error && (
           <p role="alert" className="mt-4 text-sm text-red-600">
             ログインに失敗しました: {error}

@@ -15,12 +15,7 @@ import {
   fetchRegisteredCategories,
   saveRegisteredCategories,
 } from './lib/categories';
-import {
-  ALLOWED_EMAIL_DOMAINS,
-  isEmailAllowed,
-  signOutUser,
-  subscribeToAuth,
-} from './lib/firebase';
+import { signOutUser, subscribeToAuth } from './lib/firebase';
 import { fetchAllRecords, toDateId, type SaveRecordResult } from './lib/records';
 import { fetchTeacherProfile } from './lib/teacher';
 import type { RecordDoc, TeacherProfile, ToastMessage } from './types';
@@ -41,7 +36,6 @@ export default function App() {
   // 教員ログイン時はクラス全体ビューを既定表示にする。
   const [viewMode, setViewMode] = useState<ViewMode>('self');
   const [registeredCategories, setRegisteredCategories] = useState<string[]>([]);
-  const [signInNotice, setSignInNotice] = useState<string | null>(null);
 
   useEffect(() => {
     const update = () => setIsOnline(navigator.onLine);
@@ -55,18 +49,6 @@ export default function App() {
 
   useEffect(() => {
     return subscribeToAuth((user) => {
-      // 許可ドメイン制限を超えたユーザは即座にサインアウトしてログイン画面に戻す。
-      // (Auth フローではなく Auth state 側で弾くと、ポップアップ閉じ後の状態遷移にも対応できる。)
-      if (user && !isEmailAllowed(user.email)) {
-        const allowed = ALLOWED_EMAIL_DOMAINS.map((d) => `@${d}`).join(' / ');
-        setSignInNotice(
-          `このメールアドレス (${user.email ?? '不明'}) ではログインできません。校内アカウント (${allowed}) を使ってください。`
-        );
-        signOutUser().catch(() => {});
-        setAuthState({ status: 'ready', user: null });
-        return;
-      }
-      if (user) setSignInNotice(null);
       setAuthState({ status: 'ready', user });
     });
   }, []);
@@ -187,7 +169,7 @@ export default function App() {
   }
 
   if (!authState.user) {
-    return <SignInScreen notice={signInNotice} />;
+    return <SignInScreen />;
   }
 
   const user = authState.user;
