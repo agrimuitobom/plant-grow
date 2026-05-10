@@ -47,6 +47,19 @@ async function compressImage(file: File): Promise<Blob> {
       JPEG_QUALITY
     );
   });
+
+  // DevTools で「ちゃんと圧縮されているか」が一目で分かるように、毎回 before/after を出力。
+  // Vite の build モードでは console.info も残るので、本番ビルドでも教員が確認できる。
+  const before = (file.size / 1024).toFixed(0);
+  const after = (blob.size / 1024).toFixed(0);
+  const reduction =
+    file.size > 0 ? Math.round((1 - blob.size / file.size) * 100) : 0;
+  console.info(
+    `[plant-grow:photo] ${file.name || '(no name)'} ` +
+      `${img.width}×${img.height} → ${targetW}×${targetH}, ` +
+      `${before}KB → ${after}KB (-${reduction}%)`
+  );
+
   return blob;
 }
 

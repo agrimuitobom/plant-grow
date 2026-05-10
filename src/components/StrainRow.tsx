@@ -230,10 +230,15 @@ export default function StrainRow({
               }`}
             >
               {photoStatus === 'uploading' ? 'アップロード中…' : '＋ 撮影 / 選択'}
+              {/*
+                capture を指定しないことで、iPad Safari は標準のアクションシート
+                (フォトライブラリ / 撮影 / ファイルを選択) を出す。
+                オフライン中に iPad の Camera アプリで撮っておき、オンライン復帰後に
+                ライブラリから選んでアップロードする運用を可能にする。
+              */}
               <input
                 type="file"
                 accept="image/*"
-                capture="environment"
                 className="hidden"
                 onChange={handlePickPhoto}
                 disabled={photoStatus === 'uploading'}
