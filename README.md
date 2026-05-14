@@ -2,7 +2,7 @@
 
 学校の授業で、タブレットから複数の株の草丈・葉枚数・写真・観察メモを記録するための Web アプリ。
 PWA としてホーム画面に追加でき、オフラインでも観察記録を続けられます。
-React (Vite + vite-plugin-pwa) + Tailwind CSS + Firebase (Firestore + Storage + Google Auth) + Recharts。
+React (Vite + vite-plugin-pwa) + Tailwind CSS + Firebase (Firestore + Storage + メール/パスワード Auth) + Recharts。
 
 ## セットアップ & デプロイ手順
 
@@ -10,8 +10,8 @@ React (Vite + vite-plugin-pwa) + Tailwind CSS + Firebase (Firestore + Storage + 
 
 1. [Firebase Console](https://console.firebase.google.com/) で新規プロジェクトを作成
 2. 「Build → Firestore Database」で DB を作成（本番モード推奨）
-3. 「Build → Authentication → Sign-in method」で **「Google」を有効化**
-   （プロジェクトのサポートメールを設定する必要あり）
+3. 「Build → Authentication → Sign-in method」で **「メール/パスワード」を有効化**
+   （「メールリンク (パスワードレス)」のチェックは不要）
 4. 「Authentication → Settings → 承認済みドメイン」に Hosting のドメイン
    （`<project-id>.web.app` / `<project-id>.firebaseapp.com` / 独自ドメイン）と
    ローカル開発用の `localhost` が含まれていることを確認
@@ -73,7 +73,7 @@ firebase deploy
 
 | 層 | 誰が | 何ができる |
 |----|------|-----------|
-| Firebase Auth | **Google ログイン** したユーザー | 一意の uid と displayName / email を取得 |
+| Firebase Auth | **メール/パスワード** で登録したユーザー | 一意の uid と displayName を取得 |
 | Firestore Rules | ログイン済み生徒 (匿名拒否) | **自分の** `classes/{classId}/students/{uid}/records/{YYYY-MM-DD}` の read / create / update |
 | Firestore Rules | 教員 (`classes/{classId}/teachers/{uid}` に登録) | **同じクラスの全生徒** のレコード・名簿を read（書き込みは不可） |
 | Storage Rules | ログイン済み生徒 | **自分の** `classes/{classId}/students/{uid}/photos/{dateId}/*` の read / write / delete<br>1ファイル 5MB 以下 / `image/*` のみ |
@@ -83,9 +83,18 @@ firebase deploy
   `request.auth.uid == userId` を要求しているので、他人のレコードや写真には触れません。
 - レコードに `createdBy` / `updatedBy` を保存して、後からのクラス横断ビューや監査に備えています。
 - `firestore.rules` / `storage.rules` の双方で匿名認証を明示的に拒否しています。
-- 個人 Google アカウント (gmail.com など) を含めて、Google ログインできるユーザは
-  全員が自分の領域に書き込み可能です。校内アカウントに絞りたい場合は Rules 側で
-  `request.auth.token.email.matches('.*@example-school\\.ac\\.jp$')` を追加してください。
+
+### 生徒のログイン方式
+
+スマホ前提の 2 段階認証を避けるため、**ID + パスワード** によるサインインを採用しています。
+
+- 生徒は「ID」(例: `3a-15`) と「パスワード」(6 文字以上) を入力するだけ
+- アプリ内部では `${ID}@${CLASS_ID}.invalid` という擬似メールに変換して Firebase Auth に渡す
+  （`.invalid` は RFC 2606 で予約された never-resolves な TLD）
+- 初回は「初回登録」タブから生徒自身が ID / 表示名 / パスワードを登録
+  （教員が事前に紙で「あなたの ID と仮パスワードはこれです」と配る運用想定）
+- 以降は「ログイン」タブから ID + パスワードで入る
+- 教員アカウントも同じ手順で登録 → Firebase Console から `classes/{classId}/teachers/{uid}` を seed して教員ロール付与
 
 ## Firestore スキーマ
 
@@ -134,10 +143,12 @@ classes/{classId}/students/{uid}             // 生徒名簿 (記録保存時に
 
 - 生徒が記録を保存すると `students/{uid}` が自動 upsert され、教員ダッシュボードの一覧に出ます。
 - **教員アカウントの追加手順** (Firebase Console):
-  1. Firestore Database → `classes` → 該当 classId → `teachers` サブコレクションを開く
-  2. 「ドキュメントを追加」でドキュメント ID にその先生の **Firebase Auth uid** を指定
-     （uid は Authentication タブで Google ログイン後のユーザーから確認できる）
-  3. フィールド `displayName` (string) に表示名を入れて保存
+  1. 先生本人にアプリの「初回登録」から ID / 表示名 / パスワードでアカウントを作ってもらう
+  2. Firebase Console の Authentication タブで先生のユーザを開き、**uid** をコピー
+  3. Firestore Database → `classes` → 該当 classId → `teachers` サブコレクションを開く
+  4. 「ドキュメントを追加」でドキュメント ID にその先生の **uid** を指定
+  5. フィールド `displayName` (string) に表示名を入れて保存
+  6. 以降、別の先生を追加する場合はアプリ内の「教員管理」タブから昇格できる
 - アプリ側では教員ログイン時に「クラスを見る／自分の記録」のタブが表示され、
   クラスの生徒一覧から児童を選んで成長グラフ・記録一覧・写真アルバム・CSV を
   read-only で閲覧できます。教員でも他生徒の記録を編集することはできません (Rules で禁止)。
