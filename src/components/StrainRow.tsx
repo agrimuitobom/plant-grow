@@ -72,6 +72,18 @@ export default function StrainRow({
 
   const toNum = (v: string): number | '' => (v === '' ? '' : Number(v));
 
+  // ±ステッパー: 空欄は 0 から始める。マイナス値にはしない。
+  // 浮動小数誤差を避けるため 10 倍 → 整数演算 → 戻す。
+  const adjustHeight = (delta: number) => {
+    const current = typeof strain.height === 'number' ? strain.height : 0;
+    const next = Math.max(0, Math.round((current + delta) * 10) / 10);
+    update('height', next);
+  };
+  const adjustLeafCount = (delta: number) => {
+    const current = typeof strain.leafCount === 'number' ? strain.leafCount : 0;
+    update('leafCount', Math.max(0, current + delta));
+  };
+
   const setUploading = (v: boolean) => {
     setPhotoStatus(v ? 'uploading' : 'idle');
     onUploadingChange?.(v);
@@ -179,28 +191,70 @@ export default function StrainRow({
 
         <div className="flex-1">
           <label className="block text-sm font-medium text-slate-500">草丈 (cm)</label>
-          <input
-            type="number"
-            inputMode="decimal"
-            step="0.1"
-            min="0"
-            value={strain.height}
-            onChange={(e) => update('height', toNum(e.target.value))}
-            placeholder="例: 12.5"
-          />
+          <div className="mt-1 flex items-stretch gap-1">
+            <button
+              type="button"
+              onClick={() => adjustHeight(-0.5)}
+              className="min-w-12 rounded-xl bg-slate-100 px-3 text-xl font-bold text-slate-700 hover:bg-slate-200 active:scale-95"
+              aria-label="草丈を 0.5 cm 減らす"
+            >
+              −
+            </button>
+            <div className="flex-1">
+              <input
+                type="number"
+                inputMode="decimal"
+                step="0.1"
+                min="0"
+                value={strain.height}
+                onChange={(e) => update('height', toNum(e.target.value))}
+                placeholder="例: 12.5"
+                className="!mt-0 text-center"
+              />
+            </div>
+            <button
+              type="button"
+              onClick={() => adjustHeight(0.5)}
+              className="min-w-12 rounded-xl bg-slate-100 px-3 text-xl font-bold text-slate-700 hover:bg-slate-200 active:scale-95"
+              aria-label="草丈を 0.5 cm 増やす"
+            >
+              ＋
+            </button>
+          </div>
         </div>
 
         <div className="flex-1">
           <label className="block text-sm font-medium text-slate-500">葉枚数 (枚)</label>
-          <input
-            type="number"
-            inputMode="numeric"
-            step="1"
-            min="0"
-            value={strain.leafCount}
-            onChange={(e) => update('leafCount', toNum(e.target.value))}
-            placeholder="例: 6"
-          />
+          <div className="mt-1 flex items-stretch gap-1">
+            <button
+              type="button"
+              onClick={() => adjustLeafCount(-1)}
+              className="min-w-12 rounded-xl bg-slate-100 px-3 text-xl font-bold text-slate-700 hover:bg-slate-200 active:scale-95"
+              aria-label="葉枚数を 1 枚減らす"
+            >
+              −
+            </button>
+            <div className="flex-1">
+              <input
+                type="number"
+                inputMode="numeric"
+                step="1"
+                min="0"
+                value={strain.leafCount}
+                onChange={(e) => update('leafCount', toNum(e.target.value))}
+                placeholder="例: 6"
+                className="!mt-0 text-center"
+              />
+            </div>
+            <button
+              type="button"
+              onClick={() => adjustLeafCount(1)}
+              className="min-w-12 rounded-xl bg-slate-100 px-3 text-xl font-bold text-slate-700 hover:bg-slate-200 active:scale-95"
+              aria-label="葉枚数を 1 枚増やす"
+            >
+              ＋
+            </button>
+          </div>
         </div>
 
         <div className="md:w-40">

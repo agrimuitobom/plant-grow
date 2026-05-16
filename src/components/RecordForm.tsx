@@ -4,7 +4,7 @@ import HistoryPanel from './HistoryPanel';
 import StrainRow from './StrainRow';
 import { UNCATEGORIZED, calcAveragesByCategory } from '../lib/categories';
 import { calcAverages, fetchRecord, saveRecord, type SaveRecordResult } from '../lib/records';
-import type { Strain, StrainFormValue } from '../types';
+import type { RecordDoc, Strain, StrainFormValue } from '../types';
 
 const emptyStrain = (index: number): StrainFormValue => ({
   id: String.fromCharCode(65 + index),
@@ -29,6 +29,8 @@ type RecordFormProps = {
   registeredCategories?: string[];
   /** プルダウンから「新しい品目を追加」したときの永続化ハンドラ。 */
   onAddCategory?: (name: string) => void | Promise<void>;
+  /** 「前回の値を入れる」検索用。指定日より前の最新レコードを採用する。 */
+  records?: RecordDoc[];
 };
 
 export default function RecordForm({
@@ -37,6 +39,7 @@ export default function RecordForm({
   onSaved,
   registeredCategories = [],
   onAddCategory,
+  records = [],
 }: RecordFormProps) {
   const [strains, setStrains] = useState<StrainFormValue[]>(DEFAULT_STRAINS);
   const [status, setStatus] = useState<FormStatus>('idle');
@@ -118,6 +121,31 @@ export default function RecordForm({
     setStrains((prev) => prev.map((s, i) => (i === index ? next : s)));
   };
 
+  // 「前回の値を入れる」: 現在の dateId より前で最も新しい記録を採用。
+  // 同じ株 id を持つ株について height / leafCount だけ流し込む。
+  // memo は日替わりの観察なので、photo は日付固有なのでコピーしない。
+  const previousRecord = useMemo(() => {
+    if (!records.length) return null;
+    const earlier = records.filter((r) => r.date < dateId);
+    if (earlier.length === 0) return null;
+    return earlier.reduce((a, b) => (a.date > b.date ? a : b));
+  }, [records, dateId]);
+
+  const applyPreviousValues = () => {
+    if (!previousRecord) return;
+    setStrains((prev) =>
+      prev.map((s) => {
+        const match = previousRecord.strains.find((p) => p.id === s.id);
+        if (!match) return s;
+        return {
+          ...s,
+          height: match.height ?? '',
+          leafCount: match.leafCount ?? '',
+        };
+      })
+    );
+  };
+
   const handleSubmit = async (e: React.FormEvent<HTMLFormElement>) => {
     e.preventDefault();
     setStatus('saving');
@@ -153,11 +181,31 @@ export default function RecordForm({
 
   return (
     <form onSubmit={handleSubmit} className="flex flex-col gap-4">
-      <header className="flex items-center justify-between">
+      <header className="flex flex-wrap items-center justify-between gap-2">
         <h2 className="text-2xl font-bold text-leaf-700">{dateId} の記録</h2>
-        <span className="text-sm text-slate-500">
-          株数 {strains.length} / 未入力欄は平均計算から除外されます
-        </span>
+        <div className="flex flex-wrap items-center gap-2">
+          <button
+            type="button"
+            onClick={applyPreviousValues}
+            disabled={!previousRecord}
+            className="btn-ghost !min-h-0 !px-3 !py-2 text-sm disabled:opacity-40"
+            title={
+              previousRecord
+                ? `${previousRecord.date} の草丈・葉枚数を取り込みます`
+                : '取り込める過去の記録がありません'
+            }
+          >
+            📋 前回の値を入れる
+            {previousRecord && (
+              <span className="ml-1 text-xs text-slate-500">
+                ({previousRecord.date})
+              </span>
+            )}
+          </button>
+          <span className="text-sm text-slate-500">
+            株数 {strains.length} / 未入力欄は平均計算から除外されます
+          </span>
+        </div>
       </header>
 
       <div className="flex flex-col gap-3">

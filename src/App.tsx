@@ -271,6 +271,7 @@ export default function App() {
               onSaved={handleSaved}
               registeredCategories={registeredCategories}
               onAddCategory={handleAddCategoryFromRow}
+              records={records}
             />
 
             <div className="flex justify-end">
