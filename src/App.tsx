@@ -1,6 +1,7 @@
 import { useCallback, useEffect, useMemo, useState } from 'react';
 import type { User } from 'firebase/auth';
 import CategoryManager from './components/CategoryManager';
+import CommentBoard from './components/CommentBoard';
 import DatePickerCard from './components/DatePickerCard';
 import ExportCsvButton from './components/ExportCsvButton';
 import GrowthChart from './components/GrowthChart';
@@ -246,7 +247,10 @@ export default function App() {
 
       <main className="mx-auto flex max-w-5xl flex-col gap-6">
         {showTeacherView ? (
-          <TeacherDashboard currentUid={user.uid} />
+          <TeacherDashboard
+            currentUid={user.uid}
+            currentDisplayName={user.displayName || user.email || user.uid}
+          />
         ) : (
           <>
             {loadError && (
@@ -290,6 +294,10 @@ export default function App() {
             />
 
             <PhotoTimeline records={records} />
+
+            {records.length > 0 && (
+              <CommentBoard studentUid={user.uid} records={records} />
+            )}
           </>
         )}
       </main>

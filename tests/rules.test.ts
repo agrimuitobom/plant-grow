@@ -372,6 +372,105 @@ describe('history subcollection', () => {
   });
 });
 
+describe('comments subcollection', () => {
+  const commentRef = (fs: ReturnType<typeof asUser>, commentId: string) =>
+    doc(
+      fs,
+      'classes',
+      CLASS_ID,
+      'students',
+      'student-a',
+      'records',
+      '2026-04-20',
+      'comments',
+      commentId
+    );
+
+  const buildComment = (createdBy: string, text = 'よく観察できているね') => ({
+    text,
+    createdBy,
+    createdByName: 'T先生',
+  });
+
+  it('teacher can create a comment with own uid as author', async () => {
+    await seedTeacher('teacher-1');
+    const fs = asUser('teacher-1');
+    await assertSucceeds(setDoc(commentRef(fs, 'c1'), buildComment('teacher-1')));
+  });
+
+  it('non-teacher cannot create a comment (even student on own record)', async () => {
+    const fs = asUser('student-a');
+    await assertFails(setDoc(commentRef(fs, 'c1'), buildComment('student-a')));
+  });
+
+  it('student can read comments on their own records', async () => {
+    await seedTeacher('teacher-1');
+    await env.withSecurityRulesDisabled(async (ctx) => {
+      const fs = ctx.firestore();
+      await setDoc(commentRef(fs as never, 'c1'), buildComment('teacher-1'));
+    });
+    const fs = asUser('student-a');
+    await assertSucceeds(getDoc(commentRef(fs, 'c1')));
+  });
+
+  it("another student cannot read someone else's comments", async () => {
+    await seedTeacher('teacher-1');
+    await env.withSecurityRulesDisabled(async (ctx) => {
+      const fs = ctx.firestore();
+      await setDoc(commentRef(fs as never, 'c1'), buildComment('teacher-1'));
+    });
+    const fs = asUser('student-b');
+    await assertFails(getDoc(commentRef(fs, 'c1')));
+  });
+
+  it('teacher cannot update another teacher comment', async () => {
+    await seedTeacher('teacher-1');
+    await seedTeacher('teacher-2');
+    await env.withSecurityRulesDisabled(async (ctx) => {
+      const fs = ctx.firestore();
+      await setDoc(commentRef(fs as never, 'c1'), buildComment('teacher-1'));
+    });
+    const fs = asUser('teacher-2');
+    await assertFails(
+      setDoc(commentRef(fs, 'c1'), buildComment('teacher-1', 'modified by other teacher'))
+    );
+  });
+
+  it('teacher can update own comment', async () => {
+    await seedTeacher('teacher-1');
+    await env.withSecurityRulesDisabled(async (ctx) => {
+      const fs = ctx.firestore();
+      await setDoc(commentRef(fs as never, 'c1'), buildComment('teacher-1'));
+    });
+    const fs = asUser('teacher-1');
+    await assertSucceeds(
+      setDoc(commentRef(fs, 'c1'), buildComment('teacher-1', '更新後の内容'))
+    );
+  });
+
+  it('teacher cannot delete another teacher comment', async () => {
+    await seedTeacher('teacher-1');
+    await seedTeacher('teacher-2');
+    await env.withSecurityRulesDisabled(async (ctx) => {
+      const fs = ctx.firestore();
+      await setDoc(commentRef(fs as never, 'c1'), buildComment('teacher-1'));
+    });
+    const fs = asUser('teacher-2');
+    await assertFails(deleteDoc(commentRef(fs, 'c1')));
+  });
+
+  it('rejects empty or too-long comment text', async () => {
+    await seedTeacher('teacher-1');
+    const fs = asUser('teacher-1');
+    await assertFails(
+      setDoc(commentRef(fs, 'c1'), { ...buildComment('teacher-1'), text: '' })
+    );
+    await assertFails(
+      setDoc(commentRef(fs, 'c2'), { ...buildComment('teacher-1'), text: 'x'.repeat(1001) })
+    );
+  });
+});
+
 describe('roster (students/{uid})', () => {
   it('student can upsert only their own roster doc with uid+displayName', async () => {
     const fs = asUser('student-a');

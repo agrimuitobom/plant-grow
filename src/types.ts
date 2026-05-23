@@ -72,6 +72,22 @@ export type TeacherProfile = {
   email?: string;
 };
 
+/**
+ * 教員から生徒へのフィードバックコメント。
+ * パス上の dateId は subcollection の親から導出されるので doc 本体には保存しない。
+ * クライアント側で表示時に補完する (dateId フィールド) ことで一覧表示を楽にする。
+ */
+export type CommentDoc = {
+  id: string;
+  text: string;
+  createdAt?: Timestamp | FieldValue;
+  updatedAt?: Timestamp | FieldValue;
+  createdBy: string;
+  createdByName: string;
+  /** 親レコードの日付。lib/comments.ts が fetch 後に詰める。 */
+  dateId?: string;
+};
+
 export type ToastTone = 'success' | 'error' | 'info';
 
 export type ToastMessage = {

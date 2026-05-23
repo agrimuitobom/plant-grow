@@ -116,6 +116,15 @@ classes/{classId}/students/{uid}/records/{YYYY-MM-DD}/history/{ISO8601}
   snapshotAt:     Timestamp
   snapshotBy:     uid
   snapshotByName: displayName
+
+classes/{classId}/students/{uid}/records/{YYYY-MM-DD}/comments/{commentId}
+  // 教員から生徒へのフィードバック。生徒は read のみ、教員のみ書き込み可。
+  // 自分の作ったコメントだけ編集・削除可能 (Rules で強制)。
+  text:           string (1〜1000 字)
+  createdAt:      Timestamp
+  updatedAt:      Timestamp (編集時のみ)
+  createdBy:      uid (教員)
+  createdByName:  displayName
 ```
 
 - 「クラス × 生徒 × 日付」の 3 軸で 1 レコードに正規化。
