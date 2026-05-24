@@ -1,16 +1,23 @@
-import { useCallback, useEffect, useMemo, useState } from 'react';
+import { Suspense, lazy, useCallback, useEffect, useMemo, useState } from 'react';
 import type { User } from 'firebase/auth';
 import CategoryManager from './components/CategoryManager';
-import CommentBoard from './components/CommentBoard';
 import DatePickerCard from './components/DatePickerCard';
 import ExportCsvButton from './components/ExportCsvButton';
-import GrowthChart from './components/GrowthChart';
-import PhotoTimeline from './components/PhotoTimeline';
 import RecordForm from './components/RecordForm';
 import RecordsList from './components/RecordsList';
 import SignInScreen from './components/SignInScreen';
-import TeacherDashboard from './components/TeacherDashboard';
 import Toast from './components/Toast';
+
+// バンドル分割: 初期表示には不要な重い依存 (Recharts や CommentBoard の
+// Firestore クエリ) を Lazy 化してフォーム表示までを軽くする。
+const GrowthChart = lazy(() => import('./components/GrowthChart'));
+const PhotoTimeline = lazy(() => import('./components/PhotoTimeline'));
+const CommentBoard = lazy(() => import('./components/CommentBoard'));
+const TeacherDashboard = lazy(() => import('./components/TeacherDashboard'));
+
+const CardFallback = ({ label }: { label: string }) => (
+  <div className="card text-slate-400">{label} を読み込み中…</div>
+);
 import {
   categorySuggestions,
   fetchRegisteredCategories,
@@ -247,10 +254,12 @@ export default function App() {
 
       <main className="mx-auto flex max-w-5xl flex-col gap-6">
         {showTeacherView ? (
-          <TeacherDashboard
-            currentUid={user.uid}
-            currentDisplayName={user.displayName || user.email || user.uid}
-          />
+          <Suspense fallback={<CardFallback label="教員ダッシュボード" />}>
+            <TeacherDashboard
+              currentUid={user.uid}
+              currentDisplayName={user.displayName || user.email || user.uid}
+            />
+          </Suspense>
         ) : (
           <>
             {loadError && (
@@ -285,7 +294,9 @@ export default function App() {
               />
             </div>
 
-            <GrowthChart records={records} />
+            <Suspense fallback={<CardFallback label="グラフ" />}>
+              <GrowthChart records={records} />
+            </Suspense>
 
             <RecordsList
               records={records}
@@ -293,10 +304,14 @@ export default function App() {
               onSelectDate={setSelectedDate}
             />
 
-            <PhotoTimeline records={records} />
+            <Suspense fallback={<CardFallback label="写真アルバム" />}>
+              <PhotoTimeline records={records} />
+            </Suspense>
 
             {records.length > 0 && (
-              <CommentBoard studentUid={user.uid} records={records} />
+              <Suspense fallback={<CardFallback label="コメント" />}>
+                <CommentBoard studentUid={user.uid} records={records} />
+              </Suspense>
             )}
           </>
         )}
