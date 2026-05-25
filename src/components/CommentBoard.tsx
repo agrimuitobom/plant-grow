@@ -147,7 +147,7 @@ export default function CommentBoard({ studentUid, records, poster, heading }: P
       {poster && (
         <form
           onSubmit={handleAdd}
-          className="mt-4 flex flex-col gap-2 rounded-2xl bg-leaf-50 p-3 ring-1 ring-leaf-100"
+          className="mt-4 flex flex-col gap-2 rounded-2xl bg-leaf-50 p-3 ring-1 ring-leaf-100 print:hidden"
         >
           <div className="flex flex-wrap items-end gap-2">
             <div>
@@ -218,7 +218,7 @@ export default function CommentBoard({ studentUid, records, poster, heading }: P
                   </span>
                 </div>
                 {isOwn && !isEditing && (
-                  <div className="flex gap-3 text-xs">
+                  <div className="flex gap-3 text-xs print:hidden">
                     <button
                       type="button"
                       onClick={() => handleStartEdit(c)}

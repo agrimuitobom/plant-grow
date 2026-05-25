@@ -56,3 +56,21 @@
   content: '';
   @apply absolute left-1/2 bottom-1 h-1.5 w-1.5 -translate-x-1/2 rounded-full bg-leaf-600;
 }
+
+/* 印刷用調整: 余分な装飾を落としてインクを節約、カードの途中で改ページしないようにする。 */
+@media print {
+  * {
+    -webkit-print-color-adjust: exact;
+    print-color-adjust: exact;
+  }
+  body {
+    background: white !important;
+  }
+  .card {
+    box-shadow: none !important;
+    border: 1px solid #e2e8f0 !important;
+    padding: 12px !important;
+    page-break-inside: avoid;
+    break-inside: avoid;
+  }
+}

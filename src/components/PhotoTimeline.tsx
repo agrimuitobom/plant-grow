@@ -122,7 +122,7 @@ export default function PhotoTimeline({ records }: Props) {
       ) : (
         <>
           {showCategoryFilter && (
-            <div className="mt-4 flex flex-wrap items-center gap-2">
+            <div className="mt-4 flex flex-wrap items-center gap-2 print:hidden">
               <span className="text-xs text-slate-500">品目:</span>
               {[ALL_CATEGORIES, ...categories].map((c) => {
                 const active = c === categoryFilter;
@@ -146,7 +146,7 @@ export default function PhotoTimeline({ records }: Props) {
             </div>
           )}
 
-          <div className="mt-4 flex flex-wrap gap-2">
+          <div className="mt-4 flex flex-wrap gap-2 print:hidden">
             {options.length === 0 ? (
               <p className="text-sm text-slate-500">この品目には写真付きの株がありません。</p>
             ) : (

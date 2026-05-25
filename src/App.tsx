@@ -24,6 +24,7 @@ import {
   saveRegisteredCategories,
 } from './lib/categories';
 import { signOutUser, subscribeToAuth } from './lib/firebase';
+import { printPortfolio } from './lib/print';
 import { fetchAllRecords, toDateId, type SaveRecordResult } from './lib/records';
 import { fetchTeacherProfile } from './lib/teacher';
 import type { RecordDoc, TeacherProfile, ToastMessage } from './types';
@@ -186,7 +187,7 @@ export default function App() {
 
   return (
     <div className="min-h-screen px-4 py-6 md:px-8 md:py-10">
-      <header className="mx-auto mb-8 flex max-w-5xl flex-wrap items-center justify-between gap-3">
+      <header className="mx-auto mb-8 flex max-w-5xl flex-wrap items-center justify-between gap-3 print:hidden">
         <div>
           <h1 className="text-3xl font-bold text-leaf-700">🌱 植物生育管理</h1>
           <p className="text-sm text-slate-500">
@@ -224,7 +225,7 @@ export default function App() {
       </header>
 
       {isTeacher && (
-        <div className="mx-auto mb-6 flex max-w-5xl gap-2">
+        <div className="mx-auto mb-6 flex max-w-5xl gap-2 print:hidden">
           <button
             type="button"
             onClick={() => setViewMode('teacher')}
@@ -262,36 +263,63 @@ export default function App() {
           </Suspense>
         ) : (
           <>
+            {/* 印刷時のみ表示する見出し: 生徒名と観察期間 */}
+            <div className="hidden print:block">
+              <h1 className="text-2xl font-bold text-leaf-700">
+                {(user.displayName || user.email || user.uid)} さんの観察ポートフォリオ
+              </h1>
+              {records.length > 0 && (
+                <p className="mt-1 text-sm text-slate-600">
+                  {records[0].date} 〜 {records[records.length - 1].date} ({records.length} 日分)
+                </p>
+              )}
+            </div>
+
             {loadError && (
-              <div className="card text-red-600">読み込みエラー: {loadError}</div>
+              <div className="card text-red-600 print:hidden">読み込みエラー: {loadError}</div>
             )}
 
-            <DatePickerCard
-              value={selectedDate}
-              onChange={setSelectedDate}
-              recordedDates={records.map((r) => r.date)}
-            />
+            <div className="print:hidden">
+              <DatePickerCard
+                value={selectedDate}
+                onChange={setSelectedDate}
+                recordedDates={records.map((r) => r.date)}
+              />
+            </div>
 
-            <CategoryManager
-              categories={registeredCategories}
-              usedInRecords={usedCategoriesInRecords}
-              onChange={persistCategories}
-            />
+            <div className="print:hidden">
+              <CategoryManager
+                categories={registeredCategories}
+                usedInRecords={usedCategoriesInRecords}
+                onChange={persistCategories}
+              />
+            </div>
 
-            <RecordForm
-              user={user}
-              dateId={selectedDate}
-              onSaved={handleSaved}
-              registeredCategories={registeredCategories}
-              onAddCategory={handleAddCategoryFromRow}
-              records={records}
-            />
+            <div className="print:hidden">
+              <RecordForm
+                user={user}
+                dateId={selectedDate}
+                onSaved={handleSaved}
+                registeredCategories={registeredCategories}
+                onAddCategory={handleAddCategoryFromRow}
+                records={records}
+              />
+            </div>
 
-            <div className="flex justify-end">
+            <div className="flex justify-end gap-2 print:hidden">
               <ExportCsvButton
                 records={records}
                 ownerLabel={user.displayName || user.email || null}
               />
+              <button
+                type="button"
+                onClick={() => void printPortfolio()}
+                disabled={records.length === 0}
+                className="btn-ghost !min-h-0 !px-4 !py-2 text-sm disabled:opacity-40"
+                title="グラフ・記録・写真・コメントをまとめて印刷します。ブラウザの印刷ダイアログから「PDF として保存」も可能。"
+              >
+                🖨️ 印刷 / PDF
+              </button>
             </div>
 
             <Suspense fallback={<CardFallback label="グラフ" />}>
@@ -317,11 +345,13 @@ export default function App() {
         )}
       </main>
 
-      <footer className="mx-auto mt-10 max-w-5xl text-center text-xs text-slate-400">
+      <footer className="mx-auto mt-10 max-w-5xl text-center text-xs text-slate-400 print:hidden">
         MVP build — {new Date().getFullYear()}
       </footer>
 
-      <Toast toast={toast} onDismiss={() => setToast(null)} />
+      <div className="print:hidden">
+        <Toast toast={toast} onDismiss={() => setToast(null)} />
+      </div>
     </div>
   );
 }

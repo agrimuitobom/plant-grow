@@ -56,7 +56,7 @@ export default function GrowthChart({ records }: GrowthChartProps) {
       </header>
 
       {showCategoryTabs && (
-        <div className="mt-3 flex flex-wrap gap-2">
+        <div className="mt-3 flex flex-wrap gap-2 print:hidden">
           {[ALL_KEY, ...categories].map((key) => {
             const active = key === selected;
             const label = key === ALL_KEY ? '全体' : key;
