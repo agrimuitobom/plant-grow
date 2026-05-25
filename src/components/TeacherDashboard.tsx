@@ -1,4 +1,5 @@
 import { useCallback, useEffect, useState } from 'react';
+import CommentBoard from './CommentBoard';
 import ExportCsvButton from './ExportCsvButton';
 import GrowthChart from './GrowthChart';
 import PhotoTimeline from './PhotoTimeline';
@@ -20,6 +21,8 @@ type Tab = 'students' | 'teachers';
 type Props = {
   /** 自分自身を解除させないために必要。 */
   currentUid: string;
+  /** コメント投稿時の表示名として使う。 */
+  currentDisplayName: string;
 };
 
 function formatLastActive(entry: RosterEntry): string {
@@ -32,7 +35,7 @@ function formatLastActive(entry: RosterEntry): string {
   return `${y}-${m}-${day}`;
 }
 
-export default function TeacherDashboard({ currentUid }: Props) {
+export default function TeacherDashboard({ currentUid, currentDisplayName }: Props) {
   const [tab, setTab] = useState<Tab>('students');
 
   const [roster, setRoster] = useState<RosterEntry[]>([]);
@@ -178,6 +181,12 @@ export default function TeacherDashboard({ currentUid }: Props) {
             <GrowthChart records={records} />
             <RecordsList records={records} />
             <PhotoTimeline records={records} />
+            <CommentBoard
+              studentUid={selected.uid}
+              records={records}
+              poster={{ uid: currentUid, displayName: currentDisplayName }}
+              heading={`${selected.displayName} さんへのフィードバック`}
+            />
           </>
         )}
       </div>

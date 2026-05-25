@@ -1,11 +1,12 @@
 import { initializeApp } from 'firebase/app';
 import {
-  GoogleAuthProvider,
   type User,
+  createUserWithEmailAndPassword,
   getAuth,
   onAuthStateChanged,
-  signInWithPopup,
+  signInWithEmailAndPassword,
   signOut,
+  updateProfile,
 } from 'firebase/auth';
 import {
   initializeFirestore,
@@ -37,11 +38,49 @@ export const db = initializeFirestore(app, {
 export const auth = getAuth(app);
 export const storage = getStorage(app);
 
-const googleProvider = new GoogleAuthProvider();
-googleProvider.setCustomParameters({ prompt: 'select_account' });
+/**
+ * 学校用 ID を Firebase Auth が要求するメール形式に変換する。
+ * - 生徒は「ID」だけ入力すればよい (実在のメールは不要)。
+ * - .invalid は RFC 2606 で予約された never-resolves な TLD なので、
+ *   万一外部に流出しても本物のメールアドレスにはならない。
+ * - CLASS_ID をドメインに含めることでクラス間で名前空間を分離。
+ */
+function sanitizeIdForAuth(id: string): string {
+  return id.trim().replace(/[^a-z0-9._-]/gi, '').toLowerCase();
+}
 
-export function signInWithGoogle() {
-  return signInWithPopup(auth, googleProvider);
+function classDomain(): string {
+  return CLASS_ID.replace(/[^a-z0-9-]/gi, '').toLowerCase() || 'plant-grow';
+}
+
+export function idToAuthEmail(id: string): string {
+  const safeId = sanitizeIdForAuth(id);
+  if (!safeId) throw new Error('ID は半角英数字 (.,_,-) で 1 文字以上にしてください。');
+  return `${safeId}@${classDomain()}.invalid`;
+}
+
+export function signInWithIdPassword(id: string, password: string) {
+  return signInWithEmailAndPassword(auth, idToAuthEmail(id), password);
+}
+
+export async function signUpWithIdPassword(args: {
+  id: string;
+  password: string;
+  displayName: string;
+}) {
+  const credential = await createUserWithEmailAndPassword(
+    auth,
+    idToAuthEmail(args.id),
+    args.password
+  );
+  const name = args.displayName.trim();
+  if (name) {
+    await updateProfile(credential.user, { displayName: name });
+    // updateProfile 直後の onAuthStateChanged は古い User を返すので、明示的に reload して
+    // 後続の subscribe コールバックが新しい displayName を受け取れるようにする。
+    await credential.user.reload();
+  }
+  return credential;
 }
 
 export function signOutUser() {
