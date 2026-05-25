@@ -4,6 +4,7 @@ import ExportCsvButton from './ExportCsvButton';
 import GrowthChart from './GrowthChart';
 import PhotoTimeline from './PhotoTimeline';
 import RecordsList from './RecordsList';
+import { printPortfolio } from '../lib/print';
 import { fetchAllRecords } from '../lib/records';
 import {
   demoteTeacher,
@@ -142,7 +143,19 @@ export default function TeacherDashboard({ currentUid, currentDisplayName }: Pro
   if (selected) {
     return (
       <div className="flex flex-col gap-6">
-        <div className="card flex flex-wrap items-center justify-between gap-3">
+        {/* 印刷時のみ表示する見出し: 生徒名と観察期間 */}
+        <div className="hidden print:block">
+          <h1 className="text-2xl font-bold text-leaf-700">
+            {selected.displayName} さんの観察ポートフォリオ
+          </h1>
+          {records.length > 0 && (
+            <p className="mt-1 text-sm text-slate-600">
+              {records[0].date} 〜 {records[records.length - 1].date} ({records.length} 日分)
+            </p>
+          )}
+        </div>
+
+        <div className="card flex flex-wrap items-center justify-between gap-3 print:hidden">
           <div>
             <button
               type="button"
@@ -162,7 +175,18 @@ export default function TeacherDashboard({ currentUid, currentDisplayName }: Pro
               <p className="text-sm text-slate-500">{selected.email}</p>
             )}
           </div>
-          <ExportCsvButton records={records} ownerLabel={selected.displayName} />
+          <div className="flex flex-wrap gap-2">
+            <ExportCsvButton records={records} ownerLabel={selected.displayName} />
+            <button
+              type="button"
+              onClick={() => void printPortfolio()}
+              disabled={records.length === 0}
+              className="btn-ghost !min-h-0 !px-4 !py-2 text-sm disabled:opacity-40"
+              title="生徒のポートフォリオを印刷します (PDF 保存も可)"
+            >
+              🖨️ 印刷 / PDF
+            </button>
+          </div>
         </div>
 
         {studentStatus === 'loading' && (
@@ -209,7 +233,7 @@ export default function TeacherDashboard({ currentUid, currentDisplayName }: Pro
 
   return (
     <div className="flex flex-col gap-4">
-      <div className="flex flex-wrap gap-2">
+      <div className="flex flex-wrap gap-2 print:hidden">
         <button
           type="button"
           onClick={() => setTab('students')}
