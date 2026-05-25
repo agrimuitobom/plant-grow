@@ -126,8 +126,8 @@ export default function StrainRow({
 
   return (
     <div className="card flex flex-col gap-4">
-      <div className="flex flex-col gap-4 md:flex-row md:items-end">
-        <div className="md:w-32">
+      <div className="flex flex-col gap-4 lg:flex-row lg:items-end">
+        <div className="lg:w-32">
           <label className="block text-sm font-medium text-slate-500">品目</label>
           {adding ? (
             <div className="mt-1 flex gap-1">
@@ -178,7 +178,7 @@ export default function StrainRow({
           )}
         </div>
 
-        <div className="md:w-28">
+        <div className="lg:w-28">
           <label className="block text-sm font-medium text-slate-500">株名</label>
           <input
             type="text"
@@ -257,7 +257,7 @@ export default function StrainRow({
           </div>
         </div>
 
-        <div className="md:w-40">
+        <div className="lg:w-40">
           <label className="block text-sm font-medium text-slate-500">写真</label>
           {strain.photoUrl ? (
             <div className="mt-1 flex items-center gap-2">
@@ -310,7 +310,7 @@ export default function StrainRow({
           type="button"
           onClick={onRemove}
           disabled={!canRemove}
-          className="btn-ghost md:w-28 disabled:opacity-30"
+          className="btn-ghost lg:w-28 disabled:opacity-30"
           aria-label={`${strain.name}を削除`}
         >
           削除
