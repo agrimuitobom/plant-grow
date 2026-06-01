@@ -41,6 +41,13 @@ export default defineConfig({
         // Firebase 系ドメインは自前のキャッシュ層 (IndexedDB persistence) を持っているので
         // SW でキャッシュさせない。重複と一貫性問題を避ける。
         navigateFallbackDenylist: [/^\/__\//, /firestore\.googleapis\.com/, /firebasestorage/],
+        // 初回登録時にすぐ activate させ、開いている全タブを制御下に置く。
+        // これがないと「最初のオンライン訪問 → 一度完全に閉じて開き直す」までオフライン対応が
+        // 効かない。教室ではブラウザを閉じない児童が多いので、この 2 行で体感が変わる。
+        skipWaiting: true,
+        clientsClaim: true,
+        // 旧版の precache を SW 更新時に掃除。デプロイの度にキャッシュが肥大化しないように。
+        cleanupOutdatedCaches: true,
       },
     }),
   ],
