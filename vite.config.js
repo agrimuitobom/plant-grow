@@ -9,8 +9,9 @@ export default defineConfig({
       // 新しいバージョンが出たら自動でバックグラウンド更新する。
       // 教室で生徒にバージョンの違いを意識させたくないので autoUpdate を採用。
       registerType: 'autoUpdate',
-      // index.html に登録スクリプトを自動挿入。main.jsx 側での import が不要になる。
-      injectRegister: 'auto',
+      // SW 登録は React 側 (useRegisterSW フック) で行うので、ここからの自動 inject は無効化する。
+      // 二重登録を防ぎつつ、登録完了タイミングを UI に反映できるようにするため。
+      injectRegister: false,
       includeAssets: ['favicon.ico', 'apple-touch-icon-180x180.png', 'icon.svg'],
       manifest: {
         name: '植物生育管理',
