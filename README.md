@@ -162,6 +162,67 @@ classes/{classId}/students/{uid}             // 生徒名簿 (記録保存時に
   クラスの生徒一覧から児童を選んで成長グラフ・記録一覧・写真アルバム・CSV を
   read-only で閲覧できます。教員でも他生徒の記録を編集することはできません (Rules で禁止)。
 
+## バックアップ / 復元
+
+`functions/src/index.ts` の `dailyFirestoreBackup` が **毎日 JST 03:00 に Firestore 全体を GCS にエクスポート** します (Cloud Scheduler + Cloud Functions)。
+
+### 初回セットアップ (1 回だけ)
+
+`PROJECT_ID` を実際の Firebase プロジェクト ID に置き換えて実行:
+
+```bash
+PROJECT_ID=plant-research-b106b
+
+# 1. バックアップ用 GCS バケットを作成 (東京リージョン)
+gcloud storage buckets create gs://${PROJECT_ID}-backups \
+  --project=$PROJECT_ID \
+  --location=asia-northeast1 \
+  --uniform-bucket-level-access
+
+# 2. Cloud Functions のサービスアカウントに必要権限を付与
+SA="${PROJECT_ID}@appspot.gserviceaccount.com"
+
+# Firestore export を呼ぶ権限
+gcloud projects add-iam-policy-binding $PROJECT_ID \
+  --member="serviceAccount:${SA}" \
+  --role="roles/datastore.importExportAdmin"
+
+# バックアップバケットへの書き込み権限
+gcloud storage buckets add-iam-policy-binding gs://${PROJECT_ID}-backups \
+  --member="serviceAccount:${SA}" \
+  --role="roles/storage.admin"
+
+# 3. 30 日より古いバックアップを自動削除するライフサイクルを適用
+gcloud storage buckets update gs://${PROJECT_ID}-backups \
+  --lifecycle-file=lifecycle.json
+
+# 4. Cloud Function をデプロイ
+firebase deploy --only functions
+```
+
+デプロイ後、Cloud Console → Cloud Scheduler でジョブ `firebase-schedule-dailyFirestoreBackup-asia-northeast1` が表示される。「今すぐ実行」ボタンで動作確認可。成功するとログに `オペレーション開始: projects/.../operations/...` が出て、GCS に `firestore/YYYY-MM-DD/` が作られる。
+
+### 復元 (緊急時)
+
+```bash
+# 特定の日のスナップショットから全体復元 (現データは上書きされる)
+gcloud firestore import gs://${PROJECT_ID}-backups/firestore/2026-04-20
+
+# 特定のコレクションだけ復元
+gcloud firestore import gs://${PROJECT_ID}-backups/firestore/2026-04-20 \
+  --collection-ids='records,students'
+```
+
+⚠️ Import は破壊的操作。**実行前にもう一度手動バックアップを取ること**:
+
+```bash
+gcloud firestore export gs://${PROJECT_ID}-backups/manual/$(date +%Y-%m-%d-%H%M)
+```
+
+### バケット名を変えたい / 別プロジェクトの GCS に置きたい
+
+`firebase functions:config:set backup.bucket="<your-bucket-name>"` ... ではなく、v2 関数の環境変数を使う。`firebase.json` の functions ブロックに `environmentVariables` を追加するか、`gcloud functions deploy dailyFirestoreBackup --update-env-vars BACKUP_BUCKET=<your-bucket>` で上書き可。
+
 ## Storage スキーマ
 
 ```
