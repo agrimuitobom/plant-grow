@@ -180,7 +180,13 @@ gcloud storage buckets create gs://${PROJECT_ID}-backups \
   --uniform-bucket-level-access
 
 # 2. Cloud Functions のサービスアカウントに必要権限を付与
-SA="${PROJECT_ID}@appspot.gserviceaccount.com"
+#    Functions v2 (Cloud Run ベース) は Compute Engine デフォルト SA を使うので、
+#    プロジェクト番号から組み立てる。
+PROJECT_NUMBER=$(gcloud projects describe $PROJECT_ID --format="value(projectNumber)")
+SA="${PROJECT_NUMBER}-compute@developer.gserviceaccount.com"
+
+# SA が無い場合は Compute Engine API を有効化すると自動作成される:
+#   gcloud services enable compute.googleapis.com
 
 # Firestore export を呼ぶ権限
 gcloud projects add-iam-policy-binding $PROJECT_ID \
