@@ -3,11 +3,13 @@ import {
   doc,
   getDoc,
   getDocs,
+  onSnapshot,
   orderBy,
   query,
   serverTimestamp,
   setDoc,
   type Timestamp,
+  type Unsubscribe,
 } from 'firebase/firestore';
 import type { User } from 'firebase/auth';
 import { db, CLASS_ID } from './firebase';
@@ -69,6 +71,28 @@ export async function fetchAllRecords(uid: string): Promise<RecordDoc[]> {
   const q = query(recordsCol(uid), orderBy('date', 'asc'));
   const snap = await getDocs(q);
   return snap.docs.map((d) => d.data() as RecordDoc);
+}
+
+/**
+ * 指定生徒の全レコードを購読する。
+ *
+ * persistentLocalCache が有効なので、保存直後はサーバ応答を待たずにローカルキャッシュ
+ * から即座に snapshot が発火する → UI に「保存した瞬間に反映」される。
+ *
+ * 教員が別生徒の記録を購読する場合: Rules で同クラスの教員に read を許可しているので
+ * そのまま動く (uid に他生徒の uid を渡せる)。
+ */
+export function subscribeToRecords(
+  uid: string,
+  onChange: (records: RecordDoc[]) => void,
+  onError?: (err: Error) => void
+): Unsubscribe {
+  const q = query(recordsCol(uid), orderBy('date', 'asc'));
+  return onSnapshot(
+    q,
+    (snap) => onChange(snap.docs.map((d) => d.data() as RecordDoc)),
+    onError
+  );
 }
 
 /** 編集履歴の 1 エントリ。RecordDoc に snapshotAt/By が乗っただけ。 */

@@ -1,4 +1,13 @@
-import { collection, deleteDoc, doc, getDoc, getDocs, setDoc } from 'firebase/firestore';
+import {
+  collection,
+  deleteDoc,
+  doc,
+  getDoc,
+  getDocs,
+  onSnapshot,
+  setDoc,
+  type Unsubscribe,
+} from 'firebase/firestore';
 import { CLASS_ID, db } from './firebase';
 import type { RosterEntry, TeacherProfile } from '../types';
 
@@ -20,14 +29,31 @@ export async function fetchTeacherProfile(uid: string): Promise<TeacherProfile |
 export async function listClassRoster(): Promise<RosterEntry[]> {
   const ref = collection(db, 'classes', CLASS_ID, 'students');
   const snap = await getDocs(ref);
-  return snap.docs
-    .map((d) => d.data() as RosterEntry)
-    // 表示用にソート: 直近に記録した生徒を先頭。lastRecordedAt 未設定は末尾。
-    .sort((a, b) => {
-      const ta = toMillis(a.lastRecordedAt);
-      const tb = toMillis(b.lastRecordedAt);
-      return tb - ta;
-    });
+  return sortRoster(snap.docs.map((d) => d.data() as RosterEntry));
+}
+
+/**
+ * クラス名簿の購読版。
+ * 新しい生徒がサインアップして名簿に upsert された瞬間に教員ダッシュボードに現れる。
+ */
+export function subscribeToClassRoster(
+  onChange: (roster: RosterEntry[]) => void,
+  onError?: (err: Error) => void
+): Unsubscribe {
+  const ref = collection(db, 'classes', CLASS_ID, 'students');
+  return onSnapshot(
+    ref,
+    (snap) => onChange(sortRoster(snap.docs.map((d) => d.data() as RosterEntry))),
+    onError
+  );
+}
+
+function sortRoster(roster: RosterEntry[]): RosterEntry[] {
+  return [...roster].sort((a, b) => {
+    const ta = toMillis(a.lastRecordedAt);
+    const tb = toMillis(b.lastRecordedAt);
+    return tb - ta;
+  });
 }
 
 function toMillis(v: RosterEntry['lastRecordedAt']): number {

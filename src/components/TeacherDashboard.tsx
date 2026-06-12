@@ -6,10 +6,10 @@ import PasswordResetPanel from './PasswordResetPanel';
 import PhotoTimeline from './PhotoTimeline';
 import RecordsList from './RecordsList';
 import { printPortfolio } from '../lib/print';
-import { fetchAllRecords } from '../lib/records';
+import { subscribeToRecords } from '../lib/records';
 import {
   demoteTeacher,
-  listClassRoster,
+  subscribeToClassRoster,
   listTeachers,
   promoteToTeacher,
 } from '../lib/teacher';
@@ -61,18 +61,23 @@ export default function TeacherDashboard({ currentUid, currentDisplayName }: Pro
     setResettingPassword(false);
   }, [selected]);
 
-  const reloadRoster = useCallback(async () => {
+  // 名簿は購読化。新しい生徒が初回保存で名簿に upsert された瞬間にカードが現れる。
+  useEffect(() => {
     setRosterStatus('loading');
-    try {
-      const list = await listClassRoster();
-      setRoster(list);
-      setRosterStatus('ready');
-    } catch (e: unknown) {
-      setRosterError(e instanceof Error ? e.message : String(e));
-      setRosterStatus('error');
-    }
+    return subscribeToClassRoster(
+      (list) => {
+        setRoster(list);
+        setRosterStatus('ready');
+      },
+      (e) => {
+        setRosterError(e.message);
+        setRosterStatus('error');
+      }
+    );
   }, []);
 
+  // 教員一覧は変動が少ない (Console / 教員管理 UI からの操作時のみ) ので一度きり取得。
+  // 教員管理タブを開いたとき / 昇格・解除操作後だけ再フェッチ。
   const reloadTeachers = useCallback(async () => {
     setTeachersStatus('loading');
     try {
@@ -86,10 +91,6 @@ export default function TeacherDashboard({ currentUid, currentDisplayName }: Pro
   }, []);
 
   useEffect(() => {
-    void reloadRoster();
-  }, [reloadRoster]);
-
-  useEffect(() => {
     if (tab === 'teachers') {
       void reloadTeachers();
     }
@@ -97,22 +98,23 @@ export default function TeacherDashboard({ currentUid, currentDisplayName }: Pro
 
   useEffect(() => {
     if (!selected) return;
-    let cancelled = false;
     setStudentStatus('loading');
     setStudentError(null);
-    fetchAllRecords(selected.uid)
-      .then((list) => {
-        if (cancelled) return;
+    // 生徒詳細を開いている間は購読しっぱなし。生徒が記録を保存した瞬間に教員側の
+    // グラフ / 一覧 / アルバムが伸びる。
+    const unsubscribe = subscribeToRecords(
+      selected.uid,
+      (list) => {
         setRecords(list);
         setStudentStatus('ready');
-      })
-      .catch((e: unknown) => {
-        if (cancelled) return;
-        setStudentError(e instanceof Error ? e.message : String(e));
+      },
+      (e) => {
+        setStudentError(e.message);
         setStudentStatus('error');
-      });
+      }
+    );
     return () => {
-      cancelled = true;
+      unsubscribe();
     };
   }, [selected]);
 
