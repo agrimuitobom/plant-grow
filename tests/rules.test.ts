@@ -471,6 +471,50 @@ describe('comments subcollection', () => {
   });
 });
 
+describe('passwordResets audit log', () => {
+  const seedLog = async () => {
+    await env.withSecurityRulesDisabled(async (ctx) => {
+      const fs = ctx.firestore();
+      await setDoc(doc(fs, 'classes', CLASS_ID, 'passwordResets', 'log-1'), {
+        studentUid: 'student-a',
+        resetBy: 'teacher-1',
+        resetByName: 'T先生',
+        at: new Date(),
+      });
+    });
+  };
+
+  it('teacher can read password reset logs in their class', async () => {
+    await seedTeacher('teacher-1');
+    await seedLog();
+    const fs = asUser('teacher-1');
+    await assertSucceeds(
+      getDoc(doc(fs, 'classes', CLASS_ID, 'passwordResets', 'log-1'))
+    );
+  });
+
+  it('student cannot read password reset logs', async () => {
+    await seedLog();
+    const fs = asUser('student-a');
+    await assertFails(
+      getDoc(doc(fs, 'classes', CLASS_ID, 'passwordResets', 'log-1'))
+    );
+  });
+
+  it('teacher cannot write password reset logs from client', async () => {
+    await seedTeacher('teacher-1');
+    const fs = asUser('teacher-1');
+    await assertFails(
+      setDoc(doc(fs, 'classes', CLASS_ID, 'passwordResets', 'log-2'), {
+        studentUid: 'student-a',
+        resetBy: 'teacher-1',
+        resetByName: 'T先生',
+        at: new Date(),
+      })
+    );
+  });
+});
+
 describe('roster (students/{uid})', () => {
   it('student can upsert only their own roster doc with uid+displayName', async () => {
     const fs = asUser('student-a');

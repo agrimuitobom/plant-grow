@@ -2,6 +2,7 @@ import { useCallback, useEffect, useState } from 'react';
 import CommentBoard from './CommentBoard';
 import ExportCsvButton from './ExportCsvButton';
 import GrowthChart from './GrowthChart';
+import PasswordResetPanel from './PasswordResetPanel';
 import PhotoTimeline from './PhotoTimeline';
 import RecordsList from './RecordsList';
 import { printPortfolio } from '../lib/print';
@@ -53,6 +54,12 @@ export default function TeacherDashboard({ currentUid, currentDisplayName }: Pro
   const [studentError, setStudentError] = useState<string | null>(null);
 
   const [busy, setBusy] = useState(false);
+  const [resettingPassword, setResettingPassword] = useState(false);
+
+  // 別の生徒に切り替えたら、パスワードリセットパネルは自動で閉じる。
+  useEffect(() => {
+    setResettingPassword(false);
+  }, [selected]);
 
   const reloadRoster = useCallback(async () => {
     setRosterStatus('loading');
@@ -186,8 +193,25 @@ export default function TeacherDashboard({ currentUid, currentDisplayName }: Pro
             >
               🖨️ 印刷 / PDF
             </button>
+            <button
+              type="button"
+              onClick={() => setResettingPassword(true)}
+              disabled={resettingPassword}
+              className="btn-ghost !min-h-0 !px-4 !py-2 text-sm disabled:opacity-40"
+              title="生徒のパスワードを再発行します (生徒が忘れたとき用)"
+            >
+              🔑 パスワードをリセット
+            </button>
           </div>
         </div>
+
+        {resettingPassword && (
+          <PasswordResetPanel
+            studentUid={selected.uid}
+            studentDisplayName={selected.displayName}
+            onClose={() => setResettingPassword(false)}
+          />
+        )}
 
         {studentStatus === 'loading' && (
           <div className="card text-slate-500">記録を読み込み中…</div>

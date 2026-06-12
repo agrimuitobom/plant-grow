@@ -56,6 +56,13 @@ service cloud.firestore {
       allow update: if false;
     }
 
+    // パスワードリセット監査ログ。Cloud Function (Admin SDK) のみが書き込み、
+    // 同クラスの教員が読み取り可能 (誰がいつ誰のパスワードを再発行したかの監査用)。
+    match /classes/{classId}/passwordResets/{logId} {
+      allow read: if isTeacher(classId);
+      allow write: if false; // Function 経由のみ (Admin SDK で Rules バイパス)
+    }
+
     // クラス名簿。生徒は自分のエントリだけ upsert でき、
     // 同じクラスの教員は全員分を一覧できる。
     match /classes/{classId}/students/{userId} {
