@@ -279,6 +279,36 @@ npm run test:rules
   CI に組み込む場合は `firebase emulators:exec` でラップしているので
   Java 17 以上が入った runner なら追加設定不要。
 
+## エラーモニタリング (Sentry)
+
+タブレットの片隅で「保存ボタンが効かない」「画面が真っ白」のような事象が起きても、
+生徒や先生が声を上げないと気付かないので、Sentry に集約しています。
+
+### 設定
+
+1. https://sentry.io/ で React プロジェクトを作成
+2. 払い出された DSN (`https://xxxxx@oXXXX.ingest.sentry.io/YYYY`) を控える
+3. ローカル開発: `.env.local` に `VITE_SENTRY_DSN=...` を追記 (任意、未設定なら監視オフ)
+4. 本番デプロイ: GitHub リポジトリの **Settings → Secrets → Actions** に
+   `VITE_SENTRY_DSN` を追加。CI が自動でビルドに埋め込む
+
+### 何を送って、何を送っていないか
+
+| 送る | 送らない |
+|------|---------|
+| 未捕捉例外 (window.onerror, unhandledrejection) | 画面録画 (replay 無効) |
+| React コンポーネントツリーのクラッシュ | パフォーマンス トレース (sampleRate=0) |
+| `captureSilent()` で明示的に投げたもの (SW 登録失敗など) | デフォルト PII (sendDefaultPii=false) |
+| エラーメッセージとスタックトレース | breadcrumb に紛れ込んだ email / displayName (beforeBreadcrumb で剥がす) |
+
+`src/lib/monitoring.ts` の `beforeBreadcrumb` で `email` / `displayName` キーを明示的に削除しています。
+他に追加したい PII フィルタがあればこのフックに足してください。
+
+### Sentry の Free tier
+
+Developer Plan (無料) で月 5,000 イベントまで。学校 1 クラス規模なら通常運用で 0〜数十件/月。
+イベントが急増したら Slack / メールでアラートが届くよう Sentry 側で設定しておくと安心。
+
 ## スタイリング指針 (Tailwind)
 
 - タッチ前提: ボタン `min-h: 56px` / `text-tap (1.25rem)` / `rounded-2xl`
