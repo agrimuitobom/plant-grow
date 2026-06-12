@@ -180,7 +180,13 @@ gcloud storage buckets create gs://${PROJECT_ID}-backups \
   --uniform-bucket-level-access
 
 # 2. Cloud Functions のサービスアカウントに必要権限を付与
-SA="${PROJECT_ID}@appspot.gserviceaccount.com"
+#    Functions v2 (Cloud Run ベース) は Compute Engine デフォルト SA を使うので、
+#    プロジェクト番号から組み立てる。
+PROJECT_NUMBER=$(gcloud projects describe $PROJECT_ID --format="value(projectNumber)")
+SA="${PROJECT_NUMBER}-compute@developer.gserviceaccount.com"
+
+# SA が無い場合は Compute Engine API を有効化すると自動作成される:
+#   gcloud services enable compute.googleapis.com
 
 # Firestore export を呼ぶ権限
 gcloud projects add-iam-policy-binding $PROJECT_ID \
@@ -265,6 +271,28 @@ npm test
 npm run test:rules
 ```
 
+### CI で自動実行
+
+GitHub Actions ワークフロー 2 本でカバーしている:
+
+| ワークフロー | トリガ | 実行内容 |
+|-------------|-------|---------|
+| `.github/workflows/test.yml` | PR (→ main) / main 以外への push | typecheck + 単体テスト + Rules テスト + functions ビルド |
+| `.github/workflows/deploy.yml` | main への push | typecheck + 単体テスト + Hosting / Rules デプロイ |
+
+### Branch Protection 推奨設定
+
+PR レビューなしで main に直 push されるのを防ぐため、GitHub リポジトリの
+**Settings → Branches → Branch protection rules → Add rule** で `main` に対して:
+
+- ☑️ Require a pull request before merging
+- ☑️ Require status checks to pass before merging
+  - ☑️ Require branches to be up to date before merging
+  - 必須チェックに `test` (test.yml のジョブ名) を追加
+- ☑️ Do not allow bypassing the above settings
+
+を有効にしておくと、テストが緑にならない限り main にマージできなくなる。
+
 - **単体テスト** (`src/**/*.test.ts`): Vitest。Firebase SDK は `tests/setup.ts` で
   モックしており、純粋関数のロジックだけを高速に検証する。
 - **Rules テスト** (`tests/rules.test.ts`): `@firebase/rules-unit-testing` 経由で
@@ -272,6 +300,36 @@ npm run test:rules
   書けない」「教員は自分自身を解除できない」など境界条件を機械検証する。
   CI に組み込む場合は `firebase emulators:exec` でラップしているので
   Java 17 以上が入った runner なら追加設定不要。
+
+## エラーモニタリング (Sentry)
+
+タブレットの片隅で「保存ボタンが効かない」「画面が真っ白」のような事象が起きても、
+生徒や先生が声を上げないと気付かないので、Sentry に集約しています。
+
+### 設定
+
+1. https://sentry.io/ で React プロジェクトを作成
+2. 払い出された DSN (`https://xxxxx@oXXXX.ingest.sentry.io/YYYY`) を控える
+3. ローカル開発: `.env.local` に `VITE_SENTRY_DSN=...` を追記 (任意、未設定なら監視オフ)
+4. 本番デプロイ: GitHub リポジトリの **Settings → Secrets → Actions** に
+   `VITE_SENTRY_DSN` を追加。CI が自動でビルドに埋め込む
+
+### 何を送って、何を送っていないか
+
+| 送る | 送らない |
+|------|---------|
+| 未捕捉例外 (window.onerror, unhandledrejection) | 画面録画 (replay 無効) |
+| React コンポーネントツリーのクラッシュ | パフォーマンス トレース (sampleRate=0) |
+| `captureSilent()` で明示的に投げたもの (SW 登録失敗など) | デフォルト PII (sendDefaultPii=false) |
+| エラーメッセージとスタックトレース | breadcrumb に紛れ込んだ email / displayName (beforeBreadcrumb で剥がす) |
+
+`src/lib/monitoring.ts` の `beforeBreadcrumb` で `email` / `displayName` キーを明示的に削除しています。
+他に追加したい PII フィルタがあればこのフックに足してください。
+
+### Sentry の Free tier
+
+Developer Plan (無料) で月 5,000 イベントまで。学校 1 クラス規模なら通常運用で 0〜数十件/月。
+イベントが急増したら Slack / メールでアラートが届くよう Sentry 側で設定しておくと安心。
 
 ## スタイリング指針 (Tailwind)
 

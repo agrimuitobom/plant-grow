@@ -25,7 +25,7 @@ import {
 } from './lib/categories';
 import { signOutUser, subscribeToAuth } from './lib/firebase';
 import { printPortfolio } from './lib/print';
-import { fetchAllRecords, toDateId, type SaveRecordResult } from './lib/records';
+import { subscribeToRecords, toDateId, type SaveRecordResult } from './lib/records';
 import { fetchTeacherProfile } from './lib/teacher';
 import type { RecordDoc, TeacherProfile, ToastMessage } from './types';
 
@@ -88,23 +88,22 @@ export default function App() {
     };
   }, [uid]);
 
-  const reload = useCallback(async () => {
-    if (!uid) return;
-    try {
-      const all = await fetchAllRecords(uid);
-      setRecords(all);
-    } catch (e: unknown) {
-      setLoadError(e instanceof Error ? e.message : String(e));
-    }
-  }, [uid]);
-
+  // 生徒自身の全レコードを購読。保存直後はローカルキャッシュから即座に snapshot が
+  // 発火するので、楽観更新を手で書かなくても UI が「保存した瞬間に伸びる」。
   useEffect(() => {
-    if (uid) {
-      reload();
-    } else {
+    if (!uid) {
       setRecords([]);
+      return;
     }
-  }, [uid, reload]);
+    return subscribeToRecords(
+      uid,
+      (all) => {
+        setRecords(all);
+        setLoadError(null);
+      },
+      (e) => setLoadError(e.message)
+    );
+  }, [uid]);
 
   // 登録済み品目を Firestore から取得。失敗時は空のままにしてフォームを止めない。
   useEffect(() => {
@@ -143,20 +142,8 @@ export default function App() {
   );
 
   const handleSaved = (saved: SaveRecordResult) => {
-    setRecords((prev) => {
-      const others = prev.filter((r) => r.date !== saved.date);
-      // SaveRecordResult は averages を持つ最低限の RecordDoc 互換。
-      // 監査フィールドは reload 時に取り直されるので、ここでは画面表示用の最小値で十分。
-      const next: RecordDoc = {
-        date: saved.date,
-        strains: saved.strains,
-        averages: saved.averages,
-        createdBy: uid ?? '',
-        updatedBy: uid ?? '',
-        updatedByName: '',
-      };
-      return [...others, next].sort((a, b) => a.date.localeCompare(b.date));
-    });
+    // records 配列は subscribeToRecords が Firestore のローカルキャッシュ書き込みを
+    // 受けて自動更新するので、ここで手動 setRecords する必要はない (二重描画になるだけ)。
     // iPad Safari は Vibration API 非対応だが、Android タブレットや Chromebook では震える。
     if (typeof navigator !== 'undefined' && typeof navigator.vibrate === 'function') {
       navigator.vibrate(60);

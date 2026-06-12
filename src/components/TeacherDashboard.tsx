@@ -2,13 +2,14 @@ import { useCallback, useEffect, useState } from 'react';
 import CommentBoard from './CommentBoard';
 import ExportCsvButton from './ExportCsvButton';
 import GrowthChart from './GrowthChart';
+import PasswordResetPanel from './PasswordResetPanel';
 import PhotoTimeline from './PhotoTimeline';
 import RecordsList from './RecordsList';
 import { printPortfolio } from '../lib/print';
-import { fetchAllRecords } from '../lib/records';
+import { subscribeToRecords } from '../lib/records';
 import {
   demoteTeacher,
-  listClassRoster,
+  subscribeToClassRoster,
   listTeachers,
   promoteToTeacher,
 } from '../lib/teacher';
@@ -53,19 +54,30 @@ export default function TeacherDashboard({ currentUid, currentDisplayName }: Pro
   const [studentError, setStudentError] = useState<string | null>(null);
 
   const [busy, setBusy] = useState(false);
+  const [resettingPassword, setResettingPassword] = useState(false);
 
-  const reloadRoster = useCallback(async () => {
+  // 別の生徒に切り替えたら、パスワードリセットパネルは自動で閉じる。
+  useEffect(() => {
+    setResettingPassword(false);
+  }, [selected]);
+
+  // 名簿は購読化。新しい生徒が初回保存で名簿に upsert された瞬間にカードが現れる。
+  useEffect(() => {
     setRosterStatus('loading');
-    try {
-      const list = await listClassRoster();
-      setRoster(list);
-      setRosterStatus('ready');
-    } catch (e: unknown) {
-      setRosterError(e instanceof Error ? e.message : String(e));
-      setRosterStatus('error');
-    }
+    return subscribeToClassRoster(
+      (list) => {
+        setRoster(list);
+        setRosterStatus('ready');
+      },
+      (e) => {
+        setRosterError(e.message);
+        setRosterStatus('error');
+      }
+    );
   }, []);
 
+  // 教員一覧は変動が少ない (Console / 教員管理 UI からの操作時のみ) ので一度きり取得。
+  // 教員管理タブを開いたとき / 昇格・解除操作後だけ再フェッチ。
   const reloadTeachers = useCallback(async () => {
     setTeachersStatus('loading');
     try {
@@ -79,10 +91,6 @@ export default function TeacherDashboard({ currentUid, currentDisplayName }: Pro
   }, []);
 
   useEffect(() => {
-    void reloadRoster();
-  }, [reloadRoster]);
-
-  useEffect(() => {
     if (tab === 'teachers') {
       void reloadTeachers();
     }
@@ -90,22 +98,23 @@ export default function TeacherDashboard({ currentUid, currentDisplayName }: Pro
 
   useEffect(() => {
     if (!selected) return;
-    let cancelled = false;
     setStudentStatus('loading');
     setStudentError(null);
-    fetchAllRecords(selected.uid)
-      .then((list) => {
-        if (cancelled) return;
+    // 生徒詳細を開いている間は購読しっぱなし。生徒が記録を保存した瞬間に教員側の
+    // グラフ / 一覧 / アルバムが伸びる。
+    const unsubscribe = subscribeToRecords(
+      selected.uid,
+      (list) => {
         setRecords(list);
         setStudentStatus('ready');
-      })
-      .catch((e: unknown) => {
-        if (cancelled) return;
-        setStudentError(e instanceof Error ? e.message : String(e));
+      },
+      (e) => {
+        setStudentError(e.message);
         setStudentStatus('error');
-      });
+      }
+    );
     return () => {
-      cancelled = true;
+      unsubscribe();
     };
   }, [selected]);
 
@@ -186,8 +195,25 @@ export default function TeacherDashboard({ currentUid, currentDisplayName }: Pro
             >
               🖨️ 印刷 / PDF
             </button>
+            <button
+              type="button"
+              onClick={() => setResettingPassword(true)}
+              disabled={resettingPassword}
+              className="btn-ghost !min-h-0 !px-4 !py-2 text-sm disabled:opacity-40"
+              title="生徒のパスワードを再発行します (生徒が忘れたとき用)"
+            >
+              🔑 パスワードをリセット
+            </button>
           </div>
         </div>
+
+        {resettingPassword && (
+          <PasswordResetPanel
+            studentUid={selected.uid}
+            studentDisplayName={selected.displayName}
+            onClose={() => setResettingPassword(false)}
+          />
+        )}
 
         {studentStatus === 'loading' && (
           <div className="card text-slate-500">記録を読み込み中…</div>

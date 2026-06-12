@@ -1,5 +1,6 @@
 import { useEffect, useState } from 'react';
 import { useRegisterSW } from 'virtual:pwa-register/react';
+import { captureSilent } from '../lib/monitoring';
 
 /**
  * Service Worker のライフサイクル状態を画面に出す。
@@ -23,6 +24,8 @@ export default function PwaStatus() {
     },
     onRegisterError(error) {
       console.warn('[plant-grow] SW register failed:', error);
+      // SW 登録失敗はオフライン対応に直結するクリティカルな事象。Sentry にも記録。
+      captureSilent(error, { source: 'pwa.register' });
     },
   });
 
