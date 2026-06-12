@@ -271,6 +271,28 @@ npm test
 npm run test:rules
 ```
 
+### CI で自動実行
+
+GitHub Actions ワークフロー 2 本でカバーしている:
+
+| ワークフロー | トリガ | 実行内容 |
+|-------------|-------|---------|
+| `.github/workflows/test.yml` | PR (→ main) / main 以外への push | typecheck + 単体テスト + Rules テスト + functions ビルド |
+| `.github/workflows/deploy.yml` | main への push | typecheck + 単体テスト + Hosting / Rules デプロイ |
+
+### Branch Protection 推奨設定
+
+PR レビューなしで main に直 push されるのを防ぐため、GitHub リポジトリの
+**Settings → Branches → Branch protection rules → Add rule** で `main` に対して:
+
+- ☑️ Require a pull request before merging
+- ☑️ Require status checks to pass before merging
+  - ☑️ Require branches to be up to date before merging
+  - 必須チェックに `test` (test.yml のジョブ名) を追加
+- ☑️ Do not allow bypassing the above settings
+
+を有効にしておくと、テストが緑にならない限り main にマージできなくなる。
+
 - **単体テスト** (`src/**/*.test.ts`): Vitest。Firebase SDK は `tests/setup.ts` で
   モックしており、純粋関数のロジックだけを高速に検証する。
 - **Rules テスト** (`tests/rules.test.ts`): `@firebase/rules-unit-testing` 経由で

@@ -18,6 +18,13 @@ jobs:
 
       - run: npm ci
 
+      # 念のため: main に直 push されたケースでも、壊れたコードがデプロイされないよう
+      # 単体テストを safety net として入れる。typecheck は後段の `npm run build` が
+      # 内部で `tsc --noEmit` してくれるのでここでは重複させない。
+      # 重い Rules テストは test.yml で PR 段階で実行済みなのでここでは省略。
+      - name: Unit tests
+        run: npm test
+
       - name: Build
         env:
           VITE_FIREBASE_API_KEY: ${{ secrets.VITE_FIREBASE_API_KEY }}
