@@ -10,11 +10,11 @@ import {
   type Unsubscribe,
 } from 'firebase/firestore';
 import type { User } from 'firebase/auth';
-import { CLASS_ID, db } from './firebase';
+import { db, getCurrentClassId } from './firebase';
 import type { EventDoc, EventType } from '../types';
 
 function eventsCol(uid: string) {
-  return collection(db, 'classes', CLASS_ID, 'students', uid, 'events');
+  return collection(db, 'classes', getCurrentClassId(), 'students', uid, 'events');
 }
 
 /**

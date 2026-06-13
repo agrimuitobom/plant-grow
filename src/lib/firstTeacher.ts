@@ -1,6 +1,6 @@
 import { collection, getDocs, limit, query } from 'firebase/firestore';
 import { getFunctions, httpsCallable, type FunctionsError } from 'firebase/functions';
-import { CLASS_ID, app, db } from './firebase';
+import { app, db, getCurrentClassId } from './firebase';
 
 const functions = getFunctions(app, 'asia-northeast1');
 
@@ -9,7 +9,7 @@ const functions = getFunctions(app, 'asia-northeast1');
  * Rules で teachers の read は全ログイン者に許可されているので生徒・教員問わず呼べる。
  */
 export async function classHasNoTeachers(): Promise<boolean> {
-  const ref = collection(db, 'classes', CLASS_ID, 'teachers');
+  const ref = collection(db, 'classes', getCurrentClassId(), 'teachers');
   const snap = await getDocs(query(ref, limit(1)));
   return snap.empty;
 }
@@ -23,7 +23,7 @@ export async function claimFirstTeacher(): Promise<void> {
     functions,
     'claimFirstTeacher'
   );
-  await callable({ classId: CLASS_ID });
+  await callable({ classId: getCurrentClassId() });
 }
 
 export function translateClaimError(err: unknown): string {

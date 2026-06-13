@@ -27,7 +27,7 @@ import {
 } from './lib/categories';
 import { markAllCommentsRead } from './lib/comments';
 import { subscribeToEvents } from './lib/events';
-import { signOutUser, subscribeToAuth } from './lib/firebase';
+import { getCurrentClassId, signOutUser, subscribeToAuth } from './lib/firebase';
 import { classHasNoTeachers } from './lib/firstTeacher';
 import { printPortfolio } from './lib/print';
 import {
@@ -249,6 +249,9 @@ export default function App() {
               : user.displayName
                 ? `${user.displayName} さんの観察記録`
                 : 'タブレットで観察記録'}
+            <span className="ml-2 rounded-full bg-slate-100 px-2 py-0.5 text-xs text-slate-600">
+              クラス: {getCurrentClassId()}
+            </span>
           </p>
         </div>
         <div className="flex items-center gap-3">

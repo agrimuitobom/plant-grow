@@ -229,6 +229,29 @@ gcloud firestore export gs://${PROJECT_ID}-backups/manual/$(date +%Y-%m-%d-%H%M)
 
 `firebase functions:config:set backup.bucket="<your-bucket-name>"` ... ではなく、v2 関数の環境変数を使う。`firebase.json` の functions ブロックに `environmentVariables` を追加するか、`gcloud functions deploy dailyFirestoreBackup --update-env-vars BACKUP_BUCKET=<your-bucket>` で上書き可。
 
+## 複数クラス対応 (classId の切替)
+
+`classId` はランタイムで切替可能です。`src/lib/firebase.ts` の
+`getCurrentClassId()` がアプリ全体で参照され、Firestore / Storage / Auth の
+全パス・ドメインに反映されます。
+
+### 動作
+
+- 既定: ビルド時の `VITE_CLASS_ID` または `class-demo`
+- 端末ごとに localStorage キー `plant-grow.classId` に上書き保存
+- ログイン画面下部の「クラス: ... [変更]」リンクから切替可能
+- ID + パスワードが同じでも、クラスが違えば **別アカウント** として扱われる
+  (auth メールが `{ID}@{classId}.invalid` 形式なので classId を含むため)
+
+### 新しいクラスを開設する手順
+
+1. 教員が新しい classId (例: `2027-grade3a`) を決める
+2. 生徒に「ログイン画面の『クラス: ... [変更]』から `2027-grade3a` を入力してから初回登録」を案内
+3. 既存の `class-demo` のデータは無影響、別の名前空間で新クラスが立ち上がる
+
+教員が複数クラスを同時に持つ場合の switcher UI は Phase B で実装予定。
+現状は **「ログアウト → クラス切替 → 別アカウントで再ログイン」** の運用で対応。
+
 ## Storage スキーマ
 
 ```

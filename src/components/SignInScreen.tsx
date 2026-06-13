@@ -1,5 +1,10 @@
 import { useState } from 'react';
-import { signInWithIdPassword, signUpWithIdPassword } from '../lib/firebase';
+import {
+  getCurrentClassId,
+  setCurrentClassId,
+  signInWithIdPassword,
+  signUpWithIdPassword,
+} from '../lib/firebase';
 
 type Mode = 'signin' | 'signup';
 type Status = 'idle' | 'loading' | 'error';
@@ -34,6 +39,10 @@ export default function SignInScreen() {
   const [confirmPassword, setConfirmPassword] = useState('');
   // 初回登録時のプライバシーポリシー同意。サインインモードでは不要。
   const [agreedToPolicy, setAgreedToPolicy] = useState(false);
+  // クラス ID。サインイン/サインアップ前に切り替える必要がある (auth email に classId が含まれるため)。
+  // 初期値は localStorage から読んだ既定値。
+  const [classIdInput, setClassIdInput] = useState(getCurrentClassId());
+  const [showClassField, setShowClassField] = useState(false);
   const [status, setStatus] = useState<Status>('idle');
   const [error, setError] = useState<string | null>(null);
 
@@ -63,6 +72,9 @@ export default function SignInScreen() {
         return;
       }
     }
+
+    // submit より前にクラス ID を確定させる。auth email の domain に組み込まれるため。
+    setCurrentClassId(classIdInput);
 
     setStatus('loading');
     try {
@@ -235,6 +247,34 @@ export default function SignInScreen() {
             ? 'まだ ID を作っていない場合は「初回登録」を選択。'
             : 'すでに ID を持っている場合は「ログイン」を選択。'}
         </p>
+
+        {/* クラス切替: 通常は隠してあるが、新クラスに移るときや別クラスにログインするときに使う。
+            現在の classId は同時に下に小さく表示しておく。 */}
+        <div className="mt-3 text-center text-xs text-slate-400">
+          <span>クラス: {classIdInput}</span>
+          <button
+            type="button"
+            onClick={() => setShowClassField((v) => !v)}
+            className="ml-2 text-leaf-700 underline"
+          >
+            {showClassField ? '閉じる' : '変更'}
+          </button>
+        </div>
+        {showClassField && (
+          <div className="mt-2">
+            <label className="block text-xs text-slate-500">クラス ID</label>
+            <input
+              type="text"
+              value={classIdInput}
+              onChange={(e) => setClassIdInput(e.target.value)}
+              placeholder="例: class-demo, 2027-grade3a"
+              autoCapitalize="off"
+            />
+            <p className="mt-1 text-xs text-slate-400">
+              ※ 同じ ID + パスワードでも、クラスが違うと別アカウントになります。先生に確認してください。
+            </p>
+          </div>
+        )}
       </div>
     </div>
   );

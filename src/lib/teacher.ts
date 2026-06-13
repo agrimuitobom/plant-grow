@@ -8,7 +8,7 @@ import {
   setDoc,
   type Unsubscribe,
 } from 'firebase/firestore';
-import { CLASS_ID, db } from './firebase';
+import { db, getCurrentClassId } from './firebase';
 import type { RosterEntry, TeacherProfile } from '../types';
 
 /**
@@ -17,7 +17,7 @@ import type { RosterEntry, TeacherProfile } from '../types';
  * 戻り値が null = 生徒、object = 教員。
  */
 export async function fetchTeacherProfile(uid: string): Promise<TeacherProfile | null> {
-  const ref = doc(db, 'classes', CLASS_ID, 'teachers', uid);
+  const ref = doc(db, 'classes', getCurrentClassId(), 'teachers', uid);
   const snap = await getDoc(ref);
   return snap.exists() ? (snap.data() as TeacherProfile) : null;
 }
@@ -27,7 +27,7 @@ export async function fetchTeacherProfile(uid: string): Promise<TeacherProfile |
  * 生徒は Rules で list 不可なので失敗する。
  */
 export async function listClassRoster(): Promise<RosterEntry[]> {
-  const ref = collection(db, 'classes', CLASS_ID, 'students');
+  const ref = collection(db, 'classes', getCurrentClassId(), 'students');
   const snap = await getDocs(ref);
   return sortRoster(snap.docs.map((d) => d.data() as RosterEntry));
 }
@@ -40,7 +40,7 @@ export function subscribeToClassRoster(
   onChange: (roster: RosterEntry[]) => void,
   onError?: (err: Error) => void
 ): Unsubscribe {
-  const ref = collection(db, 'classes', CLASS_ID, 'students');
+  const ref = collection(db, 'classes', getCurrentClassId(), 'students');
   return onSnapshot(
     ref,
     (snap) => onChange(sortRoster(snap.docs.map((d) => d.data() as RosterEntry))),
@@ -65,7 +65,7 @@ function toMillis(v: RosterEntry['lastRecordedAt']): number {
 
 /** 同じクラスの教員一覧。 */
 export async function listTeachers(): Promise<TeacherProfile[]> {
-  const ref = collection(db, 'classes', CLASS_ID, 'teachers');
+  const ref = collection(db, 'classes', getCurrentClassId(), 'teachers');
   const snap = await getDocs(ref);
   return snap.docs
     .map((d) => d.data() as TeacherProfile)
@@ -74,7 +74,7 @@ export async function listTeachers(): Promise<TeacherProfile[]> {
 
 /** ユーザを教員に昇格させる。Rules で「既存教員のみ実行可」が強制される。 */
 export async function promoteToTeacher(profile: TeacherProfile): Promise<void> {
-  const ref = doc(db, 'classes', CLASS_ID, 'teachers', profile.uid);
+  const ref = doc(db, 'classes', getCurrentClassId(), 'teachers', profile.uid);
   await setDoc(ref, {
     uid: profile.uid,
     displayName: profile.displayName,
@@ -84,6 +84,6 @@ export async function promoteToTeacher(profile: TeacherProfile): Promise<void> {
 
 /** 教員ロールを解除する。Rules 側で自分自身は外せない。 */
 export async function demoteTeacher(uid: string): Promise<void> {
-  const ref = doc(db, 'classes', CLASS_ID, 'teachers', uid);
+  const ref = doc(db, 'classes', getCurrentClassId(), 'teachers', uid);
   await deleteDoc(ref);
 }

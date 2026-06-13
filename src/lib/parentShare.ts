@@ -1,6 +1,6 @@
 import { doc, getDoc } from 'firebase/firestore';
 import { getFunctions, httpsCallable, type FunctionsError } from 'firebase/functions';
-import { CLASS_ID, app, db } from './firebase';
+import { app, db, getCurrentClassId } from './firebase';
 import type { EventDoc, RecordDoc } from '../types';
 
 const functions = getFunctions(app, 'asia-northeast1');
@@ -24,7 +24,7 @@ export async function createParentShare(args: {
     { token: string; expiresAt: string }
   >(functions, 'createParentShare');
   const res = await callable({
-    classId: CLASS_ID,
+    classId: getCurrentClassId(),
     studentUid: args.studentUid,
     hours: args.hours,
   });

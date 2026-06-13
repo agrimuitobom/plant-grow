@@ -11,12 +11,12 @@ import {
   updateDoc,
 } from 'firebase/firestore';
 import type { User } from 'firebase/auth';
-import { CLASS_ID, db } from './firebase';
+import { db, getCurrentClassId } from './firebase';
 import { rosterDoc } from './records';
 import type { CommentDoc } from '../types';
 
 function commentsCol(uid: string, dateId: string) {
-  return collection(db, 'classes', CLASS_ID, 'students', uid, 'records', dateId, 'comments');
+  return collection(db, 'classes', getCurrentClassId(), 'students', uid, 'records', dateId, 'comments');
 }
 
 /** 指定日のコメントを古い順で返す。 */

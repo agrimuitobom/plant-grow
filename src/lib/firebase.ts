@@ -26,7 +26,58 @@ const firebaseConfig = {
   appId: import.meta.env.VITE_FIREBASE_APP_ID,
 };
 
-export const CLASS_ID: string = import.meta.env.VITE_CLASS_ID || 'class-demo';
+/**
+ * 既定クラス ID。ビルド時の VITE_CLASS_ID または "class-demo"。
+ * 端末ごとに localStorage で上書き可能 (getCurrentClassId / setCurrentClassId 参照)。
+ * 新年度・新クラスを開設するときは、運用者が UI から ID を入れ直して切り替える。
+ */
+const DEFAULT_CLASS_ID: string = import.meta.env.VITE_CLASS_ID || 'class-demo';
+const CLASS_ID_STORAGE_KEY = 'plant-grow.classId';
+
+function readPersistedClassId(): string {
+  if (typeof localStorage === 'undefined') return DEFAULT_CLASS_ID;
+  try {
+    const v = localStorage.getItem(CLASS_ID_STORAGE_KEY);
+    return v && v.trim() !== '' ? v : DEFAULT_CLASS_ID;
+  } catch {
+    return DEFAULT_CLASS_ID;
+  }
+}
+
+let _currentClassId = readPersistedClassId();
+const classChangeListeners = new Set<(classId: string) => void>();
+
+/** 全 Firestore / Storage 操作で使う現在のクラス ID。lib/* / components/* はこれを呼ぶ。 */
+export function getCurrentClassId(): string {
+  return _currentClassId;
+}
+
+/** クラス ID を切り替える。localStorage に永続化、購読中のコンポーネントに通知する。 */
+export function setCurrentClassId(classId: string): void {
+  const next = classId.trim() || DEFAULT_CLASS_ID;
+  if (_currentClassId === next) return;
+  _currentClassId = next;
+  try {
+    localStorage.setItem(CLASS_ID_STORAGE_KEY, next);
+  } catch {
+    // private mode 等で書き込み失敗。メモリ内の値だけ保持する。
+  }
+  classChangeListeners.forEach((cb) => cb(next));
+}
+
+/** クラス ID 変更を購読する。useEffect の cleanup で unsubscribe を呼ぶこと。 */
+export function onClassIdChange(cb: (classId: string) => void): () => void {
+  classChangeListeners.add(cb);
+  return () => {
+    classChangeListeners.delete(cb);
+  };
+}
+
+/**
+ * @deprecated 後方互換のために残す。新コードは getCurrentClassId() を使うこと。
+ * モジュール読込時の値で固定されるため、切替後は陳腐化する可能性がある。
+ */
+export const CLASS_ID: string = _currentClassId;
 
 export const app = initializeApp(firebaseConfig);
 // IndexedDB ベースの永続キャッシュを有効化。授業中に Wi-Fi が切れても
@@ -50,7 +101,7 @@ function sanitizeIdForAuth(id: string): string {
 }
 
 function classDomain(): string {
-  return CLASS_ID.replace(/[^a-z0-9-]/gi, '').toLowerCase() || 'plant-grow';
+  return getCurrentClassId().replace(/[^a-z0-9-]/gi, '').toLowerCase() || 'plant-grow';
 }
 
 export function idToAuthEmail(id: string): string {
