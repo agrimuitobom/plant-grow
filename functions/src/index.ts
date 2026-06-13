@@ -201,3 +201,166 @@ export const dailyFirestoreBackup = onSchedule(
     logger.info(`オペレーション開始: ${operation.name ?? '(no name)'}`);
   }
 );
+
+interface CreateShareData {
+  classId: string;
+  studentUid: string;
+  /** 有効期間 (時間)。未指定なら既定 72h。最大 168h (1 週間)。 */
+  hours?: number;
+}
+
+const SHARE_DEFAULT_HOURS = 72;
+const SHARE_MAX_HOURS = 168;
+// 衝突しにくく、URL に貼っても問題ない文字種で 32 桁。
+const SHARE_TOKEN_ALPHABET =
+  'abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789';
+
+function generateShareToken(length = 32): string {
+  // Node の crypto.getRandomValues は Node 19+ で利用可。Functions の Node 20 ランタイムで OK。
+  const buf = new Uint32Array(length);
+  crypto.getRandomValues(buf);
+  let out = '';
+  for (let i = 0; i < length; i++) {
+    out += SHARE_TOKEN_ALPHABET[buf[i]! % SHARE_TOKEN_ALPHABET.length];
+  }
+  return out;
+}
+
+/**
+ * 保護者向け共有リンクを発行する。
+ *
+ * 仕組み:
+ *  - 呼出元は対象生徒本人 or 同クラスの教員。
+ *  - 発行時点の records / events / 生徒名をスナップショットして shares/{token} に書き出す。
+ *  - 72h (上書き可、最大 1 週間) で自動失効。Rules 側で expiresAt > request.time のみ read 許可。
+ *  - 写真は photoUrl (Firebase Storage の token 付き URL) がそのまま使えるので追加処理不要。
+ *  - コメントは含めない (教員フィードバックは私的なため)。
+ *
+ * 同じ studentUid に対する既存の有効なリンクは破棄され (1 生徒 1 リンクの制約)、
+ * 新しい token に置き換えられる。これにより家庭で配ったリンクを後から差し替えやすい。
+ */
+export const createParentShare = onCall<CreateShareData>(async (req) => {
+  if (!req.auth) {
+    throw new HttpsError('unauthenticated', 'ログインが必要です。');
+  }
+  const callerUid = req.auth.uid;
+  const { classId, studentUid, hours } = req.data ?? ({} as CreateShareData);
+
+  if (!classId || !studentUid) {
+    throw new HttpsError('invalid-argument', 'classId / studentUid は必須です。');
+  }
+
+  const validHours = Math.min(
+    Math.max(typeof hours === 'number' && Number.isFinite(hours) ? hours : SHARE_DEFAULT_HOURS, 1),
+    SHARE_MAX_HOURS
+  );
+
+  const db = getFirestore();
+  const classRef = db.collection('classes').doc(classId);
+
+  // 権限チェック: 呼出元は対象生徒本人、または同クラスの教員のみ。
+  const teacherSnap = await classRef.collection('teachers').doc(callerUid).get();
+  const isTeacher = teacherSnap.exists;
+  if (callerUid !== studentUid && !isTeacher) {
+    throw new HttpsError(
+      'permission-denied',
+      '本人または同クラスの教員のみ共有リンクを発行できます。'
+    );
+  }
+
+  // 生徒名簿から displayName を取得
+  const studentSnap = await classRef.collection('students').doc(studentUid).get();
+  const studentDisplayName = studentSnap.exists
+    ? (studentSnap.data()?.displayName as string | undefined) ?? 'Student'
+    : 'Student';
+
+  // 既存の有効な共有を破棄 (1 生徒 1 リンク制約)
+  const existing = await db
+    .collection('shares')
+    .where('studentUid', '==', studentUid)
+    .where('classId', '==', classId)
+    .get();
+  const batch = db.batch();
+  existing.docs.forEach((d) => batch.delete(d.ref));
+
+  // 発行時点のスナップショット
+  const [recordsSnap, eventsSnap] = await Promise.all([
+    classRef.collection('students').doc(studentUid).collection('records').get(),
+    classRef.collection('students').doc(studentUid).collection('events').get(),
+  ]);
+  const records = recordsSnap.docs.map((d) => d.data());
+  const events = eventsSnap.docs.map((d) => ({ id: d.id, ...d.data() }));
+
+  const token = generateShareToken();
+  const expiresAt = new Date(Date.now() + validHours * 60 * 60 * 1000);
+
+  batch.set(db.collection('shares').doc(token), {
+    classId,
+    studentUid,
+    studentDisplayName,
+    records,
+    events,
+    createdAt: FieldValue.serverTimestamp(),
+    createdBy: callerUid,
+    expiresAt,
+  });
+
+  await batch.commit();
+
+  logger.info(
+    `Share issued: token=${token.slice(0, 6)}... studentUid=${studentUid} hours=${validHours}`
+  );
+  return { token, expiresAt: expiresAt.toISOString() };
+});
+
+interface RevokeShareData {
+  token: string;
+}
+
+export const revokeParentShare = onCall<RevokeShareData>(async (req) => {
+  if (!req.auth) {
+    throw new HttpsError('unauthenticated', 'ログインが必要です。');
+  }
+  const callerUid = req.auth.uid;
+  const { token } = req.data ?? ({} as RevokeShareData);
+  if (!token) {
+    throw new HttpsError('invalid-argument', 'token は必須です。');
+  }
+
+  const db = getFirestore();
+  const ref = db.collection('shares').doc(token);
+  const snap = await ref.get();
+  if (!snap.exists) {
+    // 既に失効済みは成功扱い (idempotent)
+    return { ok: true };
+  }
+  const data = snap.data() as {
+    classId?: string;
+    studentUid?: string;
+    createdBy?: string;
+  };
+
+  // 発行者本人、対象生徒本人、または同クラスの教員のみ削除可
+  const isCreator = data.createdBy === callerUid;
+  const isStudent = data.studentUid === callerUid;
+  let isTeacherForClass = false;
+  if (!isCreator && !isStudent && data.classId) {
+    const teacherSnap = await db
+      .collection('classes')
+      .doc(data.classId)
+      .collection('teachers')
+      .doc(callerUid)
+      .get();
+    isTeacherForClass = teacherSnap.exists;
+  }
+  if (!isCreator && !isStudent && !isTeacherForClass) {
+    throw new HttpsError(
+      'permission-denied',
+      'このリンクを取り消す権限がありません。'
+    );
+  }
+
+  await ref.delete();
+  logger.info(`Share revoked: token=${token.slice(0, 6)}... by=${callerUid}`);
+  return { ok: true };
+});

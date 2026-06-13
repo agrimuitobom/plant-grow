@@ -591,6 +591,61 @@ describe('events subcollection', () => {
   });
 });
 
+describe('parent share snapshots (shares/{token})', () => {
+  const seedShare = async (token: string, expiresAt: Date) => {
+    await env.withSecurityRulesDisabled(async (ctx) => {
+      const fs = ctx.firestore();
+      await setDoc(doc(fs, 'shares', token), {
+        classId: CLASS_ID,
+        studentUid: 'student-a',
+        studentDisplayName: 'Aさん',
+        records: [],
+        events: [],
+        expiresAt,
+        createdBy: 'student-a',
+      });
+    });
+  };
+
+  it('anyone (even unauthenticated) can read a non-expired share by token', async () => {
+    const future = new Date(Date.now() + 60 * 60 * 1000);
+    await seedShare('t1', future);
+    const fs = asAnon();
+    await assertSucceeds(getDoc(doc(fs, 'shares', 't1')));
+  });
+
+  it('expired shares are unreadable even by signed-in users', async () => {
+    const past = new Date(Date.now() - 60 * 60 * 1000);
+    await seedShare('t2', past);
+    const fs = asUser('student-a');
+    await assertFails(getDoc(doc(fs, 'shares', 't2')));
+  });
+
+  it('no client can write to shares (only Cloud Function via Admin SDK)', async () => {
+    const future = new Date(Date.now() + 60 * 60 * 1000);
+    const fs = asUser('student-a');
+    await assertFails(
+      setDoc(doc(fs, 'shares', 't3'), {
+        classId: CLASS_ID,
+        studentUid: 'student-a',
+        studentDisplayName: 'Aさん',
+        records: [],
+        events: [],
+        expiresAt: future,
+        createdBy: 'student-a',
+      })
+    );
+  });
+
+  it('no client (even teacher) can delete a share', async () => {
+    await seedTeacher('teacher-1');
+    const future = new Date(Date.now() + 60 * 60 * 1000);
+    await seedShare('t4', future);
+    const fs = asUser('teacher-1');
+    await assertFails(deleteDoc(doc(fs, 'shares', 't4')));
+  });
+});
+
 describe('roster (students/{uid})', () => {
   it('student can upsert only their own roster doc with uid+displayName', async () => {
     const fs = asUser('student-a');

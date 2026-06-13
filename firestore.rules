@@ -131,6 +131,16 @@ service cloud.firestore {
       allow delete: if isOwner(userId);
     }
 
+    // 保護者向け共有スナップショット。
+    // - Cloud Function (Admin SDK) のみが書き込み (クライアント write は完全禁止)
+    // - 期限内 (expiresAt > 現在時刻) なら token を知っている誰でも read 可能 (未認証 OK)
+    //   = 保護者面談・参観で URL を渡してブラウザで開いてもらう想定
+    // - expiresAt 切れの doc は読み取り不可になる (TTL を Rules で強制)
+    match /shares/{token} {
+      allow read: if resource.data.expiresAt > request.time;
+      allow write: if false;
+    }
+
     // それ以外は全拒否 (デフォルト)
     match /{document=**} {
       allow read, write: if false;
