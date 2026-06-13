@@ -238,7 +238,7 @@ export default function TeacherDashboard({ currentUid, currentDisplayName }: Pro
         )}
         {studentStatus === 'ready' && records.length > 0 && (
           <>
-            <GrowthChart records={records} />
+            <GrowthChart records={records} events={studentEvents} />
             <RecordsList records={records} />
             <EventLog
               studentUid={selected.uid}

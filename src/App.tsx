@@ -391,7 +391,7 @@ export default function App() {
             </div>
 
             <Suspense fallback={<CardFallback label="グラフ" />}>
-              <GrowthChart records={records} />
+              <GrowthChart records={records} events={events} />
             </Suspense>
 
             <RecordsList
