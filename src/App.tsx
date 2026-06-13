@@ -3,6 +3,7 @@ import type { User } from 'firebase/auth';
 import CategoryManager from './components/CategoryManager';
 import DatePickerCard from './components/DatePickerCard';
 import ExportCsvButton from './components/ExportCsvButton';
+import FirstTeacherBanner from './components/FirstTeacherBanner';
 import RecordForm from './components/RecordForm';
 import RecordsList from './components/RecordsList';
 import SignInScreen from './components/SignInScreen';
@@ -24,6 +25,7 @@ import {
   saveRegisteredCategories,
 } from './lib/categories';
 import { signOutUser, subscribeToAuth } from './lib/firebase';
+import { classHasNoTeachers } from './lib/firstTeacher';
 import { printPortfolio } from './lib/print';
 import { subscribeToRecords, toDateId, type SaveRecordResult } from './lib/records';
 import { fetchTeacherProfile } from './lib/teacher';
@@ -44,6 +46,8 @@ export default function App() {
   const [teacherProfile, setTeacherProfile] = useState<TeacherProfile | null>(null);
   // 教員ログイン時はクラス全体ビューを既定表示にする。
   const [viewMode, setViewMode] = useState<ViewMode>('self');
+  // クラスに教員が 1 人もいない時のみ true。FirstTeacherBanner の表示制御に使う。
+  const [needsFirstTeacher, setNeedsFirstTeacher] = useState(false);
   const [registeredCategories, setRegisteredCategories] = useState<string[]>([]);
 
   useEffect(() => {
@@ -64,29 +68,48 @@ export default function App() {
 
   const uid = authState.user?.uid;
 
-  // 教員ロール判定。失敗 (Rules で拒否される等) は生徒として扱う。
+  // 教員ロール判定 + 初期セットアップ要否判定。失敗 (Rules で拒否される等) は生徒として扱う。
+  const refreshRoleState = useCallback(async (currentUid: string) => {
+    try {
+      const p = await fetchTeacherProfile(currentUid);
+      setTeacherProfile(p);
+      if (p) {
+        setViewMode('teacher');
+        setNeedsFirstTeacher(false);
+        return;
+      }
+      setViewMode('self');
+      // 自分が教員でない時だけ「教員 0 人」のチェックを走らせる。
+      // 教員ならどのみち表示しないので無駄なフェッチを避ける。
+      try {
+        const empty = await classHasNoTeachers();
+        setNeedsFirstTeacher(empty);
+      } catch {
+        setNeedsFirstTeacher(false);
+      }
+    } catch {
+      setTeacherProfile(null);
+      setViewMode('self');
+      setNeedsFirstTeacher(false);
+    }
+  }, []);
+
   useEffect(() => {
     if (!uid) {
       setTeacherProfile(null);
       setViewMode('self');
+      setNeedsFirstTeacher(false);
       return;
     }
     let cancelled = false;
-    fetchTeacherProfile(uid)
-      .then((p) => {
-        if (cancelled) return;
-        setTeacherProfile(p);
-        setViewMode(p ? 'teacher' : 'self');
-      })
-      .catch(() => {
-        if (cancelled) return;
-        setTeacherProfile(null);
-        setViewMode('self');
-      });
+    void refreshRoleState(uid).then(() => {
+      // cancelled なら何もしない (setState を空打ちしてもいいが念のため)
+      if (cancelled) return;
+    });
     return () => {
       cancelled = true;
     };
-  }, [uid]);
+  }, [uid, refreshRoleState]);
 
   // 生徒自身の全レコードを購読。保存直後はローカルキャッシュから即座に snapshot が
   // 発火するので、楽観更新を手で書かなくても UI が「保存した瞬間に伸びる」。
@@ -241,6 +264,12 @@ export default function App() {
       )}
 
       <main className="mx-auto flex max-w-5xl flex-col gap-6">
+        {/* 教員 0 人のクラスでは、最初に「自分が教員になる」バナーを表示する。
+            生徒が押したら本物の事故になるので、休日や運用開始前など人がいないタイミングで使う想定。 */}
+        {needsFirstTeacher && !isTeacher && (
+          <FirstTeacherBanner onClaimed={() => refreshRoleState(user.uid)} />
+        )}
+
         {showTeacherView ? (
           <Suspense fallback={<CardFallback label="教員ダッシュボード" />}>
             <TeacherDashboard

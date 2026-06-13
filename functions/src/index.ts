@@ -100,6 +100,63 @@ export const resetStudentPassword = onCall<ResetData>(async (req) => {
 // Firestore Admin API クライアント。export/import 操作はこれ経由でしか呼べない。
 const firestoreAdmin = new firestoreV1.FirestoreAdminClient();
 
+interface ClaimData {
+  classId: string;
+}
+
+/**
+ * クラスに教員が 1 人もいない時に限り、呼出元を「最初の教員」として登録する。
+ *
+ * Rules では teachers/{teacherId} の create を「既存教員のみ」に絞っているため、
+ * 初代の教員を Console を触らずに登録する手段がこれまで無かった。これがそのギャップを埋める。
+ *
+ * 競合は Firestore Transaction で防ぐ:
+ *   - 「教員 0 人」をトランザクション内で確認 → 自分を書き込む、を不可分に実行
+ *   - 同時に 2 人が押した場合、片方がトランザクション再試行で failed-precondition に倒れる
+ *
+ * 既に教員が登録されているクラスに対して呼ばれた場合は failed-precondition を返す。
+ * 想定誤操作 (例: 別端末で先に他の人が登録) を明示するメッセージで伝える。
+ */
+export const claimFirstTeacher = onCall<ClaimData>(async (req) => {
+  if (!req.auth) {
+    throw new HttpsError('unauthenticated', 'ログインが必要です。');
+  }
+  const callerUid = req.auth.uid;
+  const { classId } = req.data ?? ({} as ClaimData);
+
+  if (!classId) {
+    throw new HttpsError('invalid-argument', 'classId は必須です。');
+  }
+
+  const db = getFirestore();
+  const classRef = db.collection('classes').doc(classId);
+  const teachersRef = classRef.collection('teachers');
+
+  // Auth から displayName を引いておく (Transaction の外で OK、書き込み内容に使うだけ)
+  const userRecord = await getAuth().getUser(callerUid);
+  const displayName = userRecord.displayName || userRecord.email || 'Teacher';
+  const email = userRecord.email ?? '';
+
+  await db.runTransaction(async (tx) => {
+    // teachers コレクションが空かを Transaction 内で確認 → 自分を書き込む、を不可分に。
+    const existing = await tx.get(teachersRef.limit(1));
+    if (!existing.empty) {
+      throw new HttpsError(
+        'failed-precondition',
+        'このクラスには既に教員が登録されています。既存の教員に依頼してください。'
+      );
+    }
+    tx.set(classRef.collection('teachers').doc(callerUid), {
+      uid: callerUid,
+      displayName,
+      email,
+    });
+  });
+
+  logger.info(`First teacher claimed: classId=${classId}, uid=${callerUid}`);
+  return { ok: true };
+});
+
 /**
  * 毎日 JST 03:00 に Firestore 全コレクションを GCS にエクスポートする日次バックアップ。
  *
