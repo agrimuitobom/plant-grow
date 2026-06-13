@@ -114,6 +114,23 @@ service cloud.firestore {
       }
     }
 
+    // 観察イベント (水やり / 肥料 / 天気)。
+    // 草丈グラフとは独立したタイムライン。生徒が追加・削除可、教員は read のみ。
+    // update は禁止 (誤編集を防ぐため追記オンリー運用)。
+    match /classes/{classId}/students/{userId}/events/{eventId} {
+      allow read: if isOwner(userId) || isTeacher(classId);
+      allow create: if isOwner(userId)
+        && request.resource.data.createdBy == userId
+        && request.resource.data.date is string
+        && isValidDateId(request.resource.data.date)
+        && request.resource.data.type in [
+          'water', 'fertilizer',
+          'weather-sunny', 'weather-cloudy', 'weather-rain', 'weather-storm'
+        ];
+      allow update: if false;
+      allow delete: if isOwner(userId);
+    }
+
     // それ以外は全拒否 (デフォルト)
     match /{document=**} {
       allow read, write: if false;

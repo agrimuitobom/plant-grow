@@ -4,7 +4,9 @@ import ExportCsvButton from './ExportCsvButton';
 import GrowthChart from './GrowthChart';
 import PasswordResetPanel from './PasswordResetPanel';
 import PhotoTimeline from './PhotoTimeline';
+import EventLog from './EventLog';
 import RecordsList from './RecordsList';
+import { subscribeToEvents } from '../lib/events';
 import { printPortfolio } from '../lib/print';
 import { subscribeToRecords } from '../lib/records';
 import {
@@ -13,7 +15,7 @@ import {
   listTeachers,
   promoteToTeacher,
 } from '../lib/teacher';
-import type { RecordDoc, RosterEntry, TeacherProfile } from '../types';
+import type { EventDoc, RecordDoc, RosterEntry, TeacherProfile } from '../types';
 
 type RosterStatus = 'loading' | 'ready' | 'error';
 type StudentStatus = 'idle' | 'loading' | 'ready' | 'error';
@@ -50,6 +52,7 @@ export default function TeacherDashboard({ currentUid, currentDisplayName }: Pro
 
   const [selected, setSelected] = useState<RosterEntry | null>(null);
   const [records, setRecords] = useState<RecordDoc[]>([]);
+  const [studentEvents, setStudentEvents] = useState<EventDoc[]>([]);
   const [studentStatus, setStudentStatus] = useState<StudentStatus>('idle');
   const [studentError, setStudentError] = useState<string | null>(null);
 
@@ -102,7 +105,7 @@ export default function TeacherDashboard({ currentUid, currentDisplayName }: Pro
     setStudentError(null);
     // 生徒詳細を開いている間は購読しっぱなし。生徒が記録を保存した瞬間に教員側の
     // グラフ / 一覧 / アルバムが伸びる。
-    const unsubscribe = subscribeToRecords(
+    const unsubscribeRecords = subscribeToRecords(
       selected.uid,
       (list) => {
         setRecords(list);
@@ -113,8 +116,15 @@ export default function TeacherDashboard({ currentUid, currentDisplayName }: Pro
         setStudentStatus('error');
       }
     );
+    const unsubscribeEvents = subscribeToEvents(
+      selected.uid,
+      (list) => setStudentEvents(list),
+      () => {}
+    );
     return () => {
-      unsubscribe();
+      unsubscribeRecords();
+      unsubscribeEvents();
+      setStudentEvents([]);
     };
   }, [selected]);
 
@@ -230,6 +240,11 @@ export default function TeacherDashboard({ currentUid, currentDisplayName }: Pro
           <>
             <GrowthChart records={records} />
             <RecordsList records={records} />
+            <EventLog
+              studentUid={selected.uid}
+              dateId=""
+              events={studentEvents}
+            />
             <PhotoTimeline records={records} />
             <CommentBoard
               studentUid={selected.uid}

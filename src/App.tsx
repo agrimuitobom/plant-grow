@@ -14,6 +14,7 @@ import Toast from './components/Toast';
 const GrowthChart = lazy(() => import('./components/GrowthChart'));
 const PhotoTimeline = lazy(() => import('./components/PhotoTimeline'));
 const CommentBoard = lazy(() => import('./components/CommentBoard'));
+const EventLog = lazy(() => import('./components/EventLog'));
 const TeacherDashboard = lazy(() => import('./components/TeacherDashboard'));
 
 const CardFallback = ({ label }: { label: string }) => (
@@ -25,6 +26,7 @@ import {
   saveRegisteredCategories,
 } from './lib/categories';
 import { markAllCommentsRead } from './lib/comments';
+import { subscribeToEvents } from './lib/events';
 import { signOutUser, subscribeToAuth } from './lib/firebase';
 import { classHasNoTeachers } from './lib/firstTeacher';
 import { printPortfolio } from './lib/print';
@@ -35,7 +37,13 @@ import {
   type SaveRecordResult,
 } from './lib/records';
 import { fetchTeacherProfile } from './lib/teacher';
-import type { RecordDoc, RosterEntry, TeacherProfile, ToastMessage } from './types';
+import type {
+  EventDoc,
+  RecordDoc,
+  RosterEntry,
+  TeacherProfile,
+  ToastMessage,
+} from './types';
 import { getDoc } from 'firebase/firestore';
 
 type AuthState = { status: 'loading'; user: null } | { status: 'ready'; user: User | null };
@@ -45,6 +53,7 @@ export default function App() {
   const [authState, setAuthState] = useState<AuthState>({ status: 'loading', user: null });
   const [selectedDate, setSelectedDate] = useState<string>(() => toDateId(new Date()));
   const [records, setRecords] = useState<RecordDoc[]>([]);
+  const [events, setEvents] = useState<EventDoc[]>([]);
   const [loadError, setLoadError] = useState<string | null>(null);
   const [toast, setToast] = useState<ToastMessage | null>(null);
   const [isOnline, setIsOnline] = useState<boolean>(() =>
@@ -127,9 +136,10 @@ export default function App() {
   useEffect(() => {
     if (!uid) {
       setRecords([]);
+      setEvents([]);
       return;
     }
-    return subscribeToRecords(
+    const unsubRecords = subscribeToRecords(
       uid,
       (all) => {
         setRecords(all);
@@ -137,6 +147,16 @@ export default function App() {
       },
       (e) => setLoadError(e.message)
     );
+    // 観察イベント (水やり / 肥料 / 天気) も並行購読
+    const unsubEvents = subscribeToEvents(
+      uid,
+      (all) => setEvents(all),
+      () => {}
+    );
+    return () => {
+      unsubRecords();
+      unsubEvents();
+    };
   }, [uid]);
 
   // 登録済み品目を Firestore から取得。失敗時は空のままにしてフォームを止めない。
@@ -344,6 +364,15 @@ export default function App() {
                 records={records}
               />
             </div>
+
+            <Suspense fallback={<CardFallback label="観察イベント" />}>
+              <EventLog
+                studentUid={user.uid}
+                dateId={selectedDate}
+                events={events}
+                poster={user}
+              />
+            </Suspense>
 
             <div className="flex justify-end gap-2 print:hidden">
               <ExportCsvButton

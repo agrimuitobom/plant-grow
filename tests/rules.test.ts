@@ -515,6 +515,82 @@ describe('passwordResets audit log', () => {
   });
 });
 
+describe('events subcollection', () => {
+  const eventRef = (fs: ReturnType<typeof asUser>, eventId: string) =>
+    doc(fs, 'classes', CLASS_ID, 'students', 'student-a', 'events', eventId);
+
+  const buildEvent = (createdBy: string, type = 'water', date = '2026-04-20') => ({
+    date,
+    type,
+    createdBy,
+    createdByName: createdBy,
+  });
+
+  it('owner can create an event of a known type', async () => {
+    const fs = asUser('student-a');
+    await assertSucceeds(setDoc(eventRef(fs, 'e1'), buildEvent('student-a', 'water')));
+    await assertSucceeds(
+      setDoc(eventRef(fs, 'e2'), buildEvent('student-a', 'weather-rain'))
+    );
+  });
+
+  it('rejects unknown event types', async () => {
+    const fs = asUser('student-a');
+    await assertFails(
+      setDoc(eventRef(fs, 'e1'), buildEvent('student-a', 'snowfall' as never))
+    );
+  });
+
+  it('rejects malformed date field', async () => {
+    const fs = asUser('student-a');
+    await assertFails(
+      setDoc(eventRef(fs, 'e1'), buildEvent('student-a', 'water', 'not-a-date'))
+    );
+  });
+
+  it("another student cannot create or read someone else's event", async () => {
+    await env.withSecurityRulesDisabled(async (ctx) => {
+      const fs = ctx.firestore();
+      await setDoc(eventRef(fs as never, 'e1'), buildEvent('student-a'));
+    });
+    const fs = asUser('student-b');
+    await assertFails(getDoc(eventRef(fs, 'e1')));
+    await assertFails(setDoc(eventRef(fs, 'e2'), buildEvent('student-b')));
+  });
+
+  it('teacher can read events but cannot create/update/delete', async () => {
+    await seedTeacher('teacher-1');
+    await env.withSecurityRulesDisabled(async (ctx) => {
+      const fs = ctx.firestore();
+      await setDoc(eventRef(fs as never, 'e1'), buildEvent('student-a'));
+    });
+    const fs = asUser('teacher-1');
+    await assertSucceeds(getDoc(eventRef(fs, 'e1')));
+    await assertFails(setDoc(eventRef(fs, 'e2'), buildEvent('teacher-1')));
+    await assertFails(deleteDoc(eventRef(fs, 'e1')));
+  });
+
+  it('owner can delete their own event', async () => {
+    await env.withSecurityRulesDisabled(async (ctx) => {
+      const fs = ctx.firestore();
+      await setDoc(eventRef(fs as never, 'e1'), buildEvent('student-a'));
+    });
+    const fs = asUser('student-a');
+    await assertSucceeds(deleteDoc(eventRef(fs, 'e1')));
+  });
+
+  it('rejects updates (append-only)', async () => {
+    await env.withSecurityRulesDisabled(async (ctx) => {
+      const fs = ctx.firestore();
+      await setDoc(eventRef(fs as never, 'e1'), buildEvent('student-a', 'water'));
+    });
+    const fs = asUser('student-a');
+    await assertFails(
+      setDoc(eventRef(fs, 'e1'), buildEvent('student-a', 'fertilizer'))
+    );
+  });
+});
+
 describe('roster (students/{uid})', () => {
   it('student can upsert only their own roster doc with uid+displayName', async () => {
     const fs = asUser('student-a');

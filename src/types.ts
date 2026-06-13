@@ -93,6 +93,33 @@ export type CommentDoc = {
   dateId?: string;
 };
 
+/**
+ * 観察イベントの種別。タップ式 UI に並ぶ順で定義しているので並び替え注意。
+ * 草丈グラフの縦線オーバーレイなど、可視化系は type を見て色分けする。
+ */
+export type EventType =
+  | 'water'           // 💧 水やり
+  | 'fertilizer'      // 🌱 肥料
+  | 'weather-sunny'   // ☀️ 晴れ
+  | 'weather-cloudy'  // ☁️ 曇り
+  | 'weather-rain'    // 🌧️ 雨
+  | 'weather-storm';  // ⛈️ 嵐
+
+/**
+ * 観察イベントドキュメント。記録 (記録一覧 / 草丈) と直交する別タイムライン。
+ * 「水やり後 2 日で草丈が伸びた」のような因果分析を授業課題に出せるよう、
+ * イベントは追記オンリーで保持する (削除は所有者のみ可、編集は不可)。
+ */
+export type EventDoc = {
+  id: string;
+  /** "YYYY-MM-DD"。イベント発生日。 */
+  date: string;
+  type: EventType;
+  createdAt?: Timestamp | FieldValue;
+  createdBy: string;
+  createdByName?: string;
+};
+
 export type ToastTone = 'success' | 'error' | 'info';
 
 export type ToastMessage = {
