@@ -2,6 +2,7 @@ import { useCallback, useEffect, useState } from 'react';
 import CommentBoard from './CommentBoard';
 import ExportCsvButton from './ExportCsvButton';
 import GrowthChart from './GrowthChart';
+import ParentSharePanel from './ParentSharePanel';
 import PasswordResetPanel from './PasswordResetPanel';
 import PhotoTimeline from './PhotoTimeline';
 import EventLog from './EventLog';
@@ -58,10 +59,12 @@ export default function TeacherDashboard({ currentUid, currentDisplayName }: Pro
 
   const [busy, setBusy] = useState(false);
   const [resettingPassword, setResettingPassword] = useState(false);
+  const [sharingParent, setSharingParent] = useState(false);
 
   // 別の生徒に切り替えたら、パスワードリセットパネルは自動で閉じる。
   useEffect(() => {
     setResettingPassword(false);
+    setSharingParent(false);
   }, [selected]);
 
   // 名簿は購読化。新しい生徒が初回保存で名簿に upsert された瞬間にカードが現れる。
@@ -214,8 +217,25 @@ export default function TeacherDashboard({ currentUid, currentDisplayName }: Pro
             >
               🔑 パスワードをリセット
             </button>
+            <button
+              type="button"
+              onClick={() => setSharingParent(true)}
+              disabled={sharingParent || records.length === 0}
+              className="btn-ghost !min-h-0 !px-4 !py-2 text-sm disabled:opacity-40"
+              title="保護者向けの 72 時間有効な公開リンクを発行します"
+            >
+              🔗 保護者リンクを発行
+            </button>
           </div>
         </div>
+
+        {sharingParent && (
+          <ParentSharePanel
+            studentUid={selected.uid}
+            studentDisplayName={selected.displayName}
+            onClose={() => setSharingParent(false)}
+          />
+        )}
 
         {resettingPassword && (
           <PasswordResetPanel
