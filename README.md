@@ -241,6 +241,52 @@ classes/{classId}/students/{uid}/photos/{YYYY-MM-DD}/{strainId}-{timestamp}.jpg
 - レコード保存時に「直前の写真パス」と比較し、参照されなくなった画像は自動削除して
   Storage の使用量を肥大化させないようにしています。
 
+### オーファン写真クリーンアップ (週次)
+
+クライアント側の即時削除を擦り抜けて Storage に取り残された写真は、
+Cloud Function `cleanupOrphanPhotos` が **毎週日曜 03:00 JST** に掃除します。
+
+仕組み:
+1. 全クラスの records + history を走査して、参照中の photoPath 集合を構築
+2. Storage の `classes/*/students/*/photos/*` を全列挙
+3. 参照集合に含まれず、24h 以上前にアップロードされたファイルを削除
+   （24h バッファは「upload 直後で record save 未完了」の写真を誤削除しないため）
+
+#### 初回デプロイ時の安全運用 (推奨)
+
+最初の 1〜2 回は **dry-run** で「何が消えるはずか」をログだけで確認することを推奨。
+
+```bash
+# dry-run モード ON で再デプロイ
+gcloud functions deploy cleanupOrphanPhotos \
+  --region=asia-northeast1 \
+  --update-env-vars ORPHAN_CLEANUP_DRY_RUN=true
+
+# Cloud Console → Cloud Scheduler から手動実行 → ログで "Would delete: ..." を確認
+
+# 問題なければ dry-run を解除
+gcloud functions deploy cleanupOrphanPhotos \
+  --region=asia-northeast1 \
+  --remove-env-vars ORPHAN_CLEANUP_DRY_RUN
+```
+
+#### 必要な IAM
+
+Cloud Functions のサービスアカウント (Compute Engine デフォルト SA、
+`${PROJECT_NUMBER}-compute@developer.gserviceaccount.com`) に
+**Storage バケットへの delete 権限** が必要。バックアップ初回セットアップで
+`roles/storage.admin` を付与していれば不要だが、未設定なら以下:
+
+```bash
+PROJECT_NUMBER=$(gcloud projects describe $PROJECT_ID --format="value(projectNumber)")
+SA="${PROJECT_NUMBER}-compute@developer.gserviceaccount.com"
+
+# プロジェクト全体に Storage Object Admin (default bucket だけ触らせたい場合)
+gcloud projects add-iam-policy-binding $PROJECT_ID \
+  --member="serviceAccount:${SA}" \
+  --role="roles/storage.objectAdmin"
+```
+
 ## PWA / ホーム画面追加
 
 `vite-plugin-pwa` で manifest と Service Worker を自動生成しています。

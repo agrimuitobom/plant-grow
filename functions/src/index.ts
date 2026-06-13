@@ -2,6 +2,7 @@ import { v1 as firestoreV1 } from '@google-cloud/firestore';
 import { initializeApp } from 'firebase-admin/app';
 import { getAuth } from 'firebase-admin/auth';
 import { FieldValue, getFirestore } from 'firebase-admin/firestore';
+import { getStorage } from 'firebase-admin/storage';
 import { logger, setGlobalOptions } from 'firebase-functions/v2';
 import { HttpsError, onCall } from 'firebase-functions/v2/https';
 import { onSchedule } from 'firebase-functions/v2/scheduler';
@@ -364,3 +365,110 @@ export const revokeParentShare = onCall<RevokeShareData>(async (req) => {
   logger.info(`Share revoked: token=${token.slice(0, 6)}... by=${callerUid}`);
   return { ok: true };
 });
+
+/**
+ * Storage に残った参照ゼロの写真を週次でクリーンアップする。
+ *
+ * 仕組み:
+ *  1. 全クラスの records と history を走査して、保存中の photoPath 集合 (referenced) を作る
+ *  2. Storage の `classes/{classId}/students/{uid}/photos/...` を全列挙
+ *  3. referenced に含まれず、かつ 24h 以上前にアップロードされたファイルを削除
+ *
+ * 24h バッファ: 写真を upload した直後 record save がまだ走っていないと photoPath が
+ * Firestore 上に出ない瞬間がある。その「保存中」状態を誤削除しないための余裕。
+ *
+ * 削除前にバックアップ取得はしない (削除されるのは「もう参照されていない」ファイルなので)。
+ * 万一誤削除が起きたとしても日次の Firestore バックアップから復元したレコード自体は無傷で、
+ * 参照する photoUrl が 404 を返すだけになる (UI 側は graceful に "写真なし" 扱い)。
+ *
+ * 環境変数 ORPHAN_CLEANUP_DRY_RUN=true で「ログだけ吐いて削除しない」モードに切替可。
+ * 初回デプロイ後は dry-run で 1 週間様子を見て、想定通りなら false (または未設定) で本番運用へ。
+ */
+export const cleanupOrphanPhotos = onSchedule(
+  {
+    schedule: 'every sunday 03:00',
+    timeZone: 'Asia/Tokyo',
+    region: 'asia-northeast1',
+    timeoutSeconds: 540,
+    memory: '512MiB',
+  },
+  async () => {
+    const dryRun = process.env.ORPHAN_CLEANUP_DRY_RUN === 'true';
+    const db = getFirestore();
+    const bucket = getStorage().bucket();
+
+    // (1) 参照中の photoPath 集合を構築
+    const referenced = new Set<string>();
+    const classesSnap = await db.collection('classes').get();
+    for (const classDoc of classesSnap.docs) {
+      const studentsSnap = await classDoc.ref.collection('students').get();
+      for (const studentDoc of studentsSnap.docs) {
+        const recordsSnap = await studentDoc.ref.collection('records').get();
+        for (const recordDoc of recordsSnap.docs) {
+          collectPhotoPaths(recordDoc.data(), referenced);
+          // 編集履歴も走査 (history のスナップショットが参照する写真も保持対象)
+          const historySnap = await recordDoc.ref.collection('history').get();
+          for (const h of historySnap.docs) {
+            collectPhotoPaths(h.data(), referenced);
+          }
+        }
+      }
+    }
+    logger.info(`Photo cleanup: ${referenced.size} 件の photoPath が参照中`);
+
+    // (2) Storage を列挙して候補抽出
+    const [files] = await bucket.getFiles({ prefix: 'classes/' });
+    const cutoff = Date.now() - 24 * 60 * 60 * 1000;
+    const orphans: typeof files = [];
+    for (const file of files) {
+      // photos 以下のファイルのみ対象 (将来 Storage 内に別ディレクトリができても影響しないよう絞る)
+      if (!file.name.includes('/photos/')) continue;
+      if (referenced.has(file.name)) continue;
+
+      // メタデータの timeCreated を読んで 24h バッファを適用
+      const [metadata] = await file.getMetadata();
+      const createdMs = metadata.timeCreated
+        ? new Date(metadata.timeCreated).getTime()
+        : 0;
+      if (createdMs > cutoff) continue;
+
+      orphans.push(file);
+    }
+    logger.info(
+      `Photo cleanup: ${orphans.length} 件のオーファン候補を検出 (dryRun=${dryRun})`
+    );
+
+    // (3) 削除実行 (or dry-run でログのみ)
+    if (dryRun) {
+      for (const f of orphans.slice(0, 50)) {
+        logger.info(`Would delete: ${f.name}`);
+      }
+      if (orphans.length > 50) {
+        logger.info(`...and ${orphans.length - 50} more`);
+      }
+      return;
+    }
+    let deleted = 0;
+    for (const f of orphans) {
+      try {
+        await f.delete();
+        deleted++;
+      } catch (e) {
+        logger.warn(`Failed to delete ${f.name}: ${(e as Error).message}`);
+      }
+    }
+    logger.info(`Photo cleanup: ${deleted}/${orphans.length} 件を削除しました`);
+  }
+);
+
+/** records / history ドキュメントから strains[].photoPath を集める。 */
+function collectPhotoPaths(
+  data: FirebaseFirestore.DocumentData | undefined,
+  out: Set<string>
+): void {
+  const strains = data?.strains as { photoPath?: string }[] | undefined;
+  if (!Array.isArray(strains)) return;
+  for (const s of strains) {
+    if (s?.photoPath && typeof s.photoPath === 'string') out.add(s.photoPath);
+  }
+}
