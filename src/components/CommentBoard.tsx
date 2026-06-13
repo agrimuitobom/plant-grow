@@ -1,6 +1,7 @@
 import { useCallback, useEffect, useMemo, useState } from 'react';
 import {
   addComment,
+  countUnreadComments,
   deleteComment,
   fetchAllComments,
   updateCommentText,
@@ -18,6 +19,17 @@ type Props = {
   poster?: { uid: string; displayName: string };
   /** 上部見出し。教員モードでは「(生徒名) へのフィードバック」など。 */
   heading?: string;
+  /**
+   * 未読判定用。生徒自身が自分の画面で見る時にだけ意味がある。
+   * 教員モードや別生徒を見ている時は未指定 → 未読ハイライト無効。
+   */
+  viewer?: {
+    uid: string;
+    /** 名簿ドキュメントの commentsLastReadAt。未指定なら全コメントを未読扱い。 */
+    lastReadAt?: { toMillis?: () => number } | null;
+  };
+  /** 未読件数が変わったときに呼ぶ。App 側のフローティングバッジ更新に使う。 */
+  onUnreadCountChange?: (count: number) => void;
 };
 
 function formatTimestamp(c: CommentDoc): string {
@@ -32,7 +44,14 @@ function formatTimestamp(c: CommentDoc): string {
   return `${y}-${mo}-${da} ${h}:${m}`;
 }
 
-export default function CommentBoard({ studentUid, records, poster, heading }: Props) {
+export default function CommentBoard({
+  studentUid,
+  records,
+  poster,
+  heading,
+  viewer,
+  onUnreadCountChange,
+}: Props) {
   const [comments, setComments] = useState<CommentDoc[]>([]);
   const [status, setStatus] = useState<Status>('loading');
   const [error, setError] = useState<string | null>(null);
@@ -137,11 +156,36 @@ export default function CommentBoard({ studentUid, records, poster, heading }: P
 
   const title = heading ?? (poster ? '先生からのコメント (投稿可)' : '先生からのコメント');
 
+  // 未読件数を算出 & 親に通知。viewer 未指定なら 0 を返して何もしない。
+  const unreadCount = useMemo(() => {
+    if (!viewer) return 0;
+    return countUnreadComments(comments, viewer.uid, viewer.lastReadAt ?? null);
+  }, [comments, viewer]);
+
+  useEffect(() => {
+    onUnreadCountChange?.(unreadCount);
+    // unmount 時に 0 を通知して App 側のバッジを残さないように。
+    return () => onUnreadCountChange?.(0);
+  }, [unreadCount, onUnreadCountChange]);
+
+  // 未読ハイライト判定: viewer 指定時のみ意味がある。
+  const lastReadMs =
+    viewer?.lastReadAt && typeof viewer.lastReadAt.toMillis === 'function'
+      ? viewer.lastReadAt.toMillis()
+      : 0;
+
   return (
-    <section className="card">
+    <section className="card" id="comment-board">
       <header className="flex flex-wrap items-baseline justify-between gap-2">
         <h2 className="text-xl font-bold text-leaf-700">{title}</h2>
-        <span className="text-xs text-slate-500">{comments.length} 件</span>
+        <span className="text-xs text-slate-500">
+          {comments.length} 件
+          {unreadCount > 0 && (
+            <span className="ml-2 rounded-full bg-amber-100 px-2 py-0.5 text-amber-800">
+              未読 {unreadCount}
+            </span>
+          )}
+        </span>
       </header>
 
       {poster && (
@@ -205,10 +249,21 @@ export default function CommentBoard({ studentUid, records, poster, heading }: P
         {comments.map((c) => {
           const isOwn = poster?.uid === c.createdBy;
           const isEditing = editingId === c.id;
+          // 未読判定: viewer 指定 + 自分以外が書いた + 既読時刻より新しい
+          const createdMs =
+            (c.createdAt as { toMillis?: () => number } | undefined)?.toMillis?.() ?? 0;
+          const isUnread =
+            !!viewer &&
+            c.createdBy !== viewer.uid &&
+            createdMs > lastReadMs;
           return (
             <article
               key={c.id}
-              className="rounded-2xl bg-white p-3 ring-1 ring-slate-100"
+              className={`rounded-2xl p-3 ring-1 ${
+                isUnread
+                  ? 'bg-amber-50 ring-amber-300'
+                  : 'bg-white ring-slate-100'
+              }`}
             >
               <header className="flex flex-wrap items-baseline justify-between gap-2">
                 <div className="text-sm">

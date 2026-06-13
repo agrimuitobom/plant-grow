@@ -2,6 +2,7 @@ import { v1 as firestoreV1 } from '@google-cloud/firestore';
 import { initializeApp } from 'firebase-admin/app';
 import { getAuth } from 'firebase-admin/auth';
 import { FieldValue, getFirestore } from 'firebase-admin/firestore';
+import { getStorage } from 'firebase-admin/storage';
 import { logger, setGlobalOptions } from 'firebase-functions/v2';
 import { HttpsError, onCall } from 'firebase-functions/v2/https';
 import { onSchedule } from 'firebase-functions/v2/scheduler';
@@ -201,3 +202,273 @@ export const dailyFirestoreBackup = onSchedule(
     logger.info(`オペレーション開始: ${operation.name ?? '(no name)'}`);
   }
 );
+
+interface CreateShareData {
+  classId: string;
+  studentUid: string;
+  /** 有効期間 (時間)。未指定なら既定 72h。最大 168h (1 週間)。 */
+  hours?: number;
+}
+
+const SHARE_DEFAULT_HOURS = 72;
+const SHARE_MAX_HOURS = 168;
+// 衝突しにくく、URL に貼っても問題ない文字種で 32 桁。
+const SHARE_TOKEN_ALPHABET =
+  'abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789';
+
+function generateShareToken(length = 32): string {
+  // Node の crypto.getRandomValues は Node 19+ で利用可。Functions の Node 20 ランタイムで OK。
+  const buf = new Uint32Array(length);
+  crypto.getRandomValues(buf);
+  let out = '';
+  for (let i = 0; i < length; i++) {
+    out += SHARE_TOKEN_ALPHABET[buf[i]! % SHARE_TOKEN_ALPHABET.length];
+  }
+  return out;
+}
+
+/**
+ * 保護者向け共有リンクを発行する。
+ *
+ * 仕組み:
+ *  - 呼出元は対象生徒本人 or 同クラスの教員。
+ *  - 発行時点の records / events / 生徒名をスナップショットして shares/{token} に書き出す。
+ *  - 72h (上書き可、最大 1 週間) で自動失効。Rules 側で expiresAt > request.time のみ read 許可。
+ *  - 写真は photoUrl (Firebase Storage の token 付き URL) がそのまま使えるので追加処理不要。
+ *  - コメントは含めない (教員フィードバックは私的なため)。
+ *
+ * 同じ studentUid に対する既存の有効なリンクは破棄され (1 生徒 1 リンクの制約)、
+ * 新しい token に置き換えられる。これにより家庭で配ったリンクを後から差し替えやすい。
+ */
+export const createParentShare = onCall<CreateShareData>(async (req) => {
+  if (!req.auth) {
+    throw new HttpsError('unauthenticated', 'ログインが必要です。');
+  }
+  const callerUid = req.auth.uid;
+  const { classId, studentUid, hours } = req.data ?? ({} as CreateShareData);
+
+  if (!classId || !studentUid) {
+    throw new HttpsError('invalid-argument', 'classId / studentUid は必須です。');
+  }
+
+  const validHours = Math.min(
+    Math.max(typeof hours === 'number' && Number.isFinite(hours) ? hours : SHARE_DEFAULT_HOURS, 1),
+    SHARE_MAX_HOURS
+  );
+
+  const db = getFirestore();
+  const classRef = db.collection('classes').doc(classId);
+
+  // 権限チェック: 呼出元は対象生徒本人、または同クラスの教員のみ。
+  const teacherSnap = await classRef.collection('teachers').doc(callerUid).get();
+  const isTeacher = teacherSnap.exists;
+  if (callerUid !== studentUid && !isTeacher) {
+    throw new HttpsError(
+      'permission-denied',
+      '本人または同クラスの教員のみ共有リンクを発行できます。'
+    );
+  }
+
+  // 生徒名簿から displayName を取得
+  const studentSnap = await classRef.collection('students').doc(studentUid).get();
+  const studentDisplayName = studentSnap.exists
+    ? (studentSnap.data()?.displayName as string | undefined) ?? 'Student'
+    : 'Student';
+
+  // 既存の有効な共有を破棄 (1 生徒 1 リンク制約)
+  const existing = await db
+    .collection('shares')
+    .where('studentUid', '==', studentUid)
+    .where('classId', '==', classId)
+    .get();
+  const batch = db.batch();
+  existing.docs.forEach((d) => batch.delete(d.ref));
+
+  // 発行時点のスナップショット
+  const [recordsSnap, eventsSnap] = await Promise.all([
+    classRef.collection('students').doc(studentUid).collection('records').get(),
+    classRef.collection('students').doc(studentUid).collection('events').get(),
+  ]);
+  const records = recordsSnap.docs.map((d) => d.data());
+  const events = eventsSnap.docs.map((d) => ({ id: d.id, ...d.data() }));
+
+  const token = generateShareToken();
+  const expiresAt = new Date(Date.now() + validHours * 60 * 60 * 1000);
+
+  batch.set(db.collection('shares').doc(token), {
+    classId,
+    studentUid,
+    studentDisplayName,
+    records,
+    events,
+    createdAt: FieldValue.serverTimestamp(),
+    createdBy: callerUid,
+    expiresAt,
+  });
+
+  await batch.commit();
+
+  logger.info(
+    `Share issued: token=${token.slice(0, 6)}... studentUid=${studentUid} hours=${validHours}`
+  );
+  return { token, expiresAt: expiresAt.toISOString() };
+});
+
+interface RevokeShareData {
+  token: string;
+}
+
+export const revokeParentShare = onCall<RevokeShareData>(async (req) => {
+  if (!req.auth) {
+    throw new HttpsError('unauthenticated', 'ログインが必要です。');
+  }
+  const callerUid = req.auth.uid;
+  const { token } = req.data ?? ({} as RevokeShareData);
+  if (!token) {
+    throw new HttpsError('invalid-argument', 'token は必須です。');
+  }
+
+  const db = getFirestore();
+  const ref = db.collection('shares').doc(token);
+  const snap = await ref.get();
+  if (!snap.exists) {
+    // 既に失効済みは成功扱い (idempotent)
+    return { ok: true };
+  }
+  const data = snap.data() as {
+    classId?: string;
+    studentUid?: string;
+    createdBy?: string;
+  };
+
+  // 発行者本人、対象生徒本人、または同クラスの教員のみ削除可
+  const isCreator = data.createdBy === callerUid;
+  const isStudent = data.studentUid === callerUid;
+  let isTeacherForClass = false;
+  if (!isCreator && !isStudent && data.classId) {
+    const teacherSnap = await db
+      .collection('classes')
+      .doc(data.classId)
+      .collection('teachers')
+      .doc(callerUid)
+      .get();
+    isTeacherForClass = teacherSnap.exists;
+  }
+  if (!isCreator && !isStudent && !isTeacherForClass) {
+    throw new HttpsError(
+      'permission-denied',
+      'このリンクを取り消す権限がありません。'
+    );
+  }
+
+  await ref.delete();
+  logger.info(`Share revoked: token=${token.slice(0, 6)}... by=${callerUid}`);
+  return { ok: true };
+});
+
+/**
+ * Storage に残った参照ゼロの写真を週次でクリーンアップする。
+ *
+ * 仕組み:
+ *  1. 全クラスの records と history を走査して、保存中の photoPath 集合 (referenced) を作る
+ *  2. Storage の `classes/{classId}/students/{uid}/photos/...` を全列挙
+ *  3. referenced に含まれず、かつ 24h 以上前にアップロードされたファイルを削除
+ *
+ * 24h バッファ: 写真を upload した直後 record save がまだ走っていないと photoPath が
+ * Firestore 上に出ない瞬間がある。その「保存中」状態を誤削除しないための余裕。
+ *
+ * 削除前にバックアップ取得はしない (削除されるのは「もう参照されていない」ファイルなので)。
+ * 万一誤削除が起きたとしても日次の Firestore バックアップから復元したレコード自体は無傷で、
+ * 参照する photoUrl が 404 を返すだけになる (UI 側は graceful に "写真なし" 扱い)。
+ *
+ * 環境変数 ORPHAN_CLEANUP_DRY_RUN=true で「ログだけ吐いて削除しない」モードに切替可。
+ * 初回デプロイ後は dry-run で 1 週間様子を見て、想定通りなら false (または未設定) で本番運用へ。
+ */
+export const cleanupOrphanPhotos = onSchedule(
+  {
+    schedule: 'every sunday 03:00',
+    timeZone: 'Asia/Tokyo',
+    region: 'asia-northeast1',
+    timeoutSeconds: 540,
+    memory: '512MiB',
+  },
+  async () => {
+    const dryRun = process.env.ORPHAN_CLEANUP_DRY_RUN === 'true';
+    const db = getFirestore();
+    const bucket = getStorage().bucket();
+
+    // (1) 参照中の photoPath 集合を構築
+    const referenced = new Set<string>();
+    const classesSnap = await db.collection('classes').get();
+    for (const classDoc of classesSnap.docs) {
+      const studentsSnap = await classDoc.ref.collection('students').get();
+      for (const studentDoc of studentsSnap.docs) {
+        const recordsSnap = await studentDoc.ref.collection('records').get();
+        for (const recordDoc of recordsSnap.docs) {
+          collectPhotoPaths(recordDoc.data(), referenced);
+          // 編集履歴も走査 (history のスナップショットが参照する写真も保持対象)
+          const historySnap = await recordDoc.ref.collection('history').get();
+          for (const h of historySnap.docs) {
+            collectPhotoPaths(h.data(), referenced);
+          }
+        }
+      }
+    }
+    logger.info(`Photo cleanup: ${referenced.size} 件の photoPath が参照中`);
+
+    // (2) Storage を列挙して候補抽出
+    const [files] = await bucket.getFiles({ prefix: 'classes/' });
+    const cutoff = Date.now() - 24 * 60 * 60 * 1000;
+    const orphans: typeof files = [];
+    for (const file of files) {
+      // photos 以下のファイルのみ対象 (将来 Storage 内に別ディレクトリができても影響しないよう絞る)
+      if (!file.name.includes('/photos/')) continue;
+      if (referenced.has(file.name)) continue;
+
+      // メタデータの timeCreated を読んで 24h バッファを適用
+      const [metadata] = await file.getMetadata();
+      const createdMs = metadata.timeCreated
+        ? new Date(metadata.timeCreated).getTime()
+        : 0;
+      if (createdMs > cutoff) continue;
+
+      orphans.push(file);
+    }
+    logger.info(
+      `Photo cleanup: ${orphans.length} 件のオーファン候補を検出 (dryRun=${dryRun})`
+    );
+
+    // (3) 削除実行 (or dry-run でログのみ)
+    if (dryRun) {
+      for (const f of orphans.slice(0, 50)) {
+        logger.info(`Would delete: ${f.name}`);
+      }
+      if (orphans.length > 50) {
+        logger.info(`...and ${orphans.length - 50} more`);
+      }
+      return;
+    }
+    let deleted = 0;
+    for (const f of orphans) {
+      try {
+        await f.delete();
+        deleted++;
+      } catch (e) {
+        logger.warn(`Failed to delete ${f.name}: ${(e as Error).message}`);
+      }
+    }
+    logger.info(`Photo cleanup: ${deleted}/${orphans.length} 件を削除しました`);
+  }
+);
+
+/** records / history ドキュメントから strains[].photoPath を集める。 */
+function collectPhotoPaths(
+  data: FirebaseFirestore.DocumentData | undefined,
+  out: Set<string>
+): void {
+  const strains = data?.strains as { photoPath?: string }[] | undefined;
+  if (!Array.isArray(strains)) return;
+  for (const s of strains) {
+    if (s?.photoPath && typeof s.photoPath === 'string') out.add(s.photoPath);
+  }
+}

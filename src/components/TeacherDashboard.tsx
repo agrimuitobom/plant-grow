@@ -2,9 +2,12 @@ import { useCallback, useEffect, useState } from 'react';
 import CommentBoard from './CommentBoard';
 import ExportCsvButton from './ExportCsvButton';
 import GrowthChart from './GrowthChart';
+import ParentSharePanel from './ParentSharePanel';
 import PasswordResetPanel from './PasswordResetPanel';
 import PhotoTimeline from './PhotoTimeline';
+import EventLog from './EventLog';
 import RecordsList from './RecordsList';
+import { subscribeToEvents } from '../lib/events';
 import { printPortfolio } from '../lib/print';
 import { subscribeToRecords } from '../lib/records';
 import {
@@ -13,7 +16,7 @@ import {
   listTeachers,
   promoteToTeacher,
 } from '../lib/teacher';
-import type { RecordDoc, RosterEntry, TeacherProfile } from '../types';
+import type { EventDoc, RecordDoc, RosterEntry, TeacherProfile } from '../types';
 
 type RosterStatus = 'loading' | 'ready' | 'error';
 type StudentStatus = 'idle' | 'loading' | 'ready' | 'error';
@@ -50,15 +53,18 @@ export default function TeacherDashboard({ currentUid, currentDisplayName }: Pro
 
   const [selected, setSelected] = useState<RosterEntry | null>(null);
   const [records, setRecords] = useState<RecordDoc[]>([]);
+  const [studentEvents, setStudentEvents] = useState<EventDoc[]>([]);
   const [studentStatus, setStudentStatus] = useState<StudentStatus>('idle');
   const [studentError, setStudentError] = useState<string | null>(null);
 
   const [busy, setBusy] = useState(false);
   const [resettingPassword, setResettingPassword] = useState(false);
+  const [sharingParent, setSharingParent] = useState(false);
 
   // 別の生徒に切り替えたら、パスワードリセットパネルは自動で閉じる。
   useEffect(() => {
     setResettingPassword(false);
+    setSharingParent(false);
   }, [selected]);
 
   // 名簿は購読化。新しい生徒が初回保存で名簿に upsert された瞬間にカードが現れる。
@@ -102,7 +108,7 @@ export default function TeacherDashboard({ currentUid, currentDisplayName }: Pro
     setStudentError(null);
     // 生徒詳細を開いている間は購読しっぱなし。生徒が記録を保存した瞬間に教員側の
     // グラフ / 一覧 / アルバムが伸びる。
-    const unsubscribe = subscribeToRecords(
+    const unsubscribeRecords = subscribeToRecords(
       selected.uid,
       (list) => {
         setRecords(list);
@@ -113,8 +119,15 @@ export default function TeacherDashboard({ currentUid, currentDisplayName }: Pro
         setStudentStatus('error');
       }
     );
+    const unsubscribeEvents = subscribeToEvents(
+      selected.uid,
+      (list) => setStudentEvents(list),
+      () => {}
+    );
     return () => {
-      unsubscribe();
+      unsubscribeRecords();
+      unsubscribeEvents();
+      setStudentEvents([]);
     };
   }, [selected]);
 
@@ -204,8 +217,25 @@ export default function TeacherDashboard({ currentUid, currentDisplayName }: Pro
             >
               🔑 パスワードをリセット
             </button>
+            <button
+              type="button"
+              onClick={() => setSharingParent(true)}
+              disabled={sharingParent || records.length === 0}
+              className="btn-ghost !min-h-0 !px-4 !py-2 text-sm disabled:opacity-40"
+              title="保護者向けの 72 時間有効な公開リンクを発行します"
+            >
+              🔗 保護者リンクを発行
+            </button>
           </div>
         </div>
+
+        {sharingParent && (
+          <ParentSharePanel
+            studentUid={selected.uid}
+            studentDisplayName={selected.displayName}
+            onClose={() => setSharingParent(false)}
+          />
+        )}
 
         {resettingPassword && (
           <PasswordResetPanel
@@ -228,8 +258,13 @@ export default function TeacherDashboard({ currentUid, currentDisplayName }: Pro
         )}
         {studentStatus === 'ready' && records.length > 0 && (
           <>
-            <GrowthChart records={records} />
+            <GrowthChart records={records} events={studentEvents} />
             <RecordsList records={records} />
+            <EventLog
+              studentUid={selected.uid}
+              dateId=""
+              events={studentEvents}
+            />
             <PhotoTimeline records={records} />
             <CommentBoard
               studentUid={selected.uid}

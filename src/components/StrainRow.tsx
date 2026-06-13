@@ -1,5 +1,6 @@
 import { useState } from 'react';
 import { deleteStrainPhoto, uploadStrainPhoto } from '../lib/storage';
+import { validateHeight, validateLeafCount } from '../lib/validation';
 import type { StrainFormValue } from '../types';
 
 type StrainRowProps = {
@@ -83,6 +84,10 @@ export default function StrainRow({
     const current = typeof strain.leafCount === 'number' ? strain.leafCount : 0;
     update('leafCount', Math.max(0, current + delta));
   };
+
+  // 入力値の妥当性チェック。範囲外でも保存はブロックしないので警告メッセージを返すだけ。
+  const heightWarning = validateHeight(strain.height);
+  const leafCountWarning = validateLeafCount(strain.leafCount);
 
   const setUploading = (v: boolean) => {
     setPhotoStatus(v ? 'uploading' : 'idle');
@@ -221,6 +226,11 @@ export default function StrainRow({
               ＋
             </button>
           </div>
+          {heightWarning && (
+            <p role="alert" className="mt-1 text-xs text-amber-700">
+              ⚠️ {heightWarning}
+            </p>
+          )}
         </div>
 
         <div className="flex-1">
@@ -255,6 +265,11 @@ export default function StrainRow({
               ＋
             </button>
           </div>
+          {leafCountWarning && (
+            <p role="alert" className="mt-1 text-xs text-amber-700">
+              ⚠️ {leafCountWarning}
+            </p>
+          )}
         </div>
 
         <div className="lg:w-40">

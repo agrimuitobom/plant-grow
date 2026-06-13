@@ -1,5 +1,5 @@
 import { getFunctions, httpsCallable, type FunctionsError } from 'firebase/functions';
-import { CLASS_ID, app } from './firebase';
+import { app, getCurrentClassId } from './firebase';
 
 // Cloud Function のデプロイ先と一致させる。Function 側で asia-northeast1 に固定済み。
 const functions = getFunctions(app, 'asia-northeast1');
@@ -24,7 +24,7 @@ export async function resetStudentPassword(args: {
     'resetStudentPassword'
   );
   const result = await callable({
-    classId: CLASS_ID,
+    classId: getCurrentClassId(),
     studentUid: args.studentUid,
     newPassword: args.newPassword,
   });

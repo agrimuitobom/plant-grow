@@ -12,7 +12,7 @@ import {
   type Unsubscribe,
 } from 'firebase/firestore';
 import type { User } from 'firebase/auth';
-import { db, CLASS_ID } from './firebase';
+import { db, getCurrentClassId } from './firebase';
 import { deleteStrainPhoto } from './storage';
 import type { Averages, RecordDoc, Strain, StrainFormValue } from '../types';
 
@@ -37,11 +37,11 @@ import type { Averages, RecordDoc, Strain, StrainFormValue } from '../types';
  */
 
 export const recordsCol = (uid: string) =>
-  collection(db, 'classes', CLASS_ID, 'students', uid, 'records');
+  collection(db, 'classes', getCurrentClassId(), 'students', uid, 'records');
 export const recordDoc = (uid: string, dateId: string) =>
-  doc(db, 'classes', CLASS_ID, 'students', uid, 'records', dateId);
+  doc(db, 'classes', getCurrentClassId(), 'students', uid, 'records', dateId);
 export const rosterDoc = (uid: string) =>
-  doc(db, 'classes', CLASS_ID, 'students', uid);
+  doc(db, 'classes', getCurrentClassId(), 'students', uid);
 
 export function calcAverages(strains: Pick<Strain, 'height' | 'leafCount'>[]): Averages {
   const avg = (key: 'height' | 'leafCount'): number | null => {

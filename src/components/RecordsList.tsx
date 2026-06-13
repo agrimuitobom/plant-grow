@@ -1,4 +1,5 @@
 import { useMemo, useState } from 'react';
+import { formatAuditCaption } from '../lib/audit';
 import { UNCATEGORIZED, categoryOf, uniqueCategories } from '../lib/categories';
 import { calcAverages } from '../lib/records';
 import type { Averages, RecordDoc } from '../types';
@@ -9,6 +10,8 @@ type Row = {
   date: string;
   count: number;
   avg: Averages;
+  /** 「田中先生 (5/10 14:30)」形式の最終更新者キャプション。なければ空文字。 */
+  auditCaption: string;
 };
 
 function buildRows(records: RecordDoc[], category: string | null): Row[] {
@@ -20,6 +23,10 @@ function buildRows(records: RecordDoc[], category: string | null): Row[] {
       date: r.date,
       count: filtered.length,
       avg: calcAverages(filtered),
+      auditCaption: formatAuditCaption({
+        name: r.updatedByName,
+        timestamp: r.updatedAt ?? null,
+      }),
     };
   });
   // 観察日記として「最近の様子」が先頭に来る方が自然。
@@ -109,7 +116,7 @@ export default function RecordsList({ records, selectedDate, onSelectDate }: Pro
                     key={r.date}
                     className={`border-t border-slate-100 ${isCurrent ? 'bg-leaf-50' : ''}`}
                   >
-                    <td className="py-2 pr-2">
+                    <td className="py-2 pr-2 align-top">
                       {onSelectDate ? (
                         <button
                           type="button"
@@ -122,14 +129,22 @@ export default function RecordsList({ records, selectedDate, onSelectDate }: Pro
                       ) : (
                         <span className="font-semibold text-slate-700">{r.date}</span>
                       )}
+                      {r.auditCaption && (
+                        <div
+                          className="text-xs text-slate-400"
+                          title="最終更新者と時刻"
+                        >
+                          {r.auditCaption}
+                        </div>
+                      )}
                     </td>
-                    <td className="py-2 px-2 text-right tabular-nums">
+                    <td className="py-2 px-2 text-right align-top tabular-nums">
                       {r.avg.height ?? '—'}
                     </td>
-                    <td className="py-2 px-2 text-right tabular-nums">
+                    <td className="py-2 px-2 text-right align-top tabular-nums">
                       {r.avg.leafCount ?? '—'}
                     </td>
-                    <td className="py-2 pl-2 text-right tabular-nums text-slate-500">
+                    <td className="py-2 pl-2 text-right align-top tabular-nums text-slate-500">
                       {r.count}
                     </td>
                   </tr>

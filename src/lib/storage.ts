@@ -4,7 +4,7 @@ import {
   ref as storageRef,
   uploadBytes,
 } from 'firebase/storage';
-import { CLASS_ID, storage } from './firebase';
+import { getCurrentClassId, storage } from './firebase';
 
 const MAX_WIDTH = 1080;
 const JPEG_QUALITY = 0.8;
@@ -68,7 +68,7 @@ function photoRef(uid: string, dateId: string, strainId: string) {
   const filename = `${strainId}-${Date.now()}.jpg`;
   return storageRef(
     storage,
-    `classes/${CLASS_ID}/students/${uid}/photos/${dateId}/${filename}`
+    `classes/${getCurrentClassId()}/students/${uid}/photos/${dateId}/${filename}`
   );
 }
 

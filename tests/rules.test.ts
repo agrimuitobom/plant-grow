@@ -515,6 +515,137 @@ describe('passwordResets audit log', () => {
   });
 });
 
+describe('events subcollection', () => {
+  const eventRef = (fs: ReturnType<typeof asUser>, eventId: string) =>
+    doc(fs, 'classes', CLASS_ID, 'students', 'student-a', 'events', eventId);
+
+  const buildEvent = (createdBy: string, type = 'water', date = '2026-04-20') => ({
+    date,
+    type,
+    createdBy,
+    createdByName: createdBy,
+  });
+
+  it('owner can create an event of a known type', async () => {
+    const fs = asUser('student-a');
+    await assertSucceeds(setDoc(eventRef(fs, 'e1'), buildEvent('student-a', 'water')));
+    await assertSucceeds(
+      setDoc(eventRef(fs, 'e2'), buildEvent('student-a', 'weather-rain'))
+    );
+  });
+
+  it('rejects unknown event types', async () => {
+    const fs = asUser('student-a');
+    await assertFails(
+      setDoc(eventRef(fs, 'e1'), buildEvent('student-a', 'snowfall' as never))
+    );
+  });
+
+  it('rejects malformed date field', async () => {
+    const fs = asUser('student-a');
+    await assertFails(
+      setDoc(eventRef(fs, 'e1'), buildEvent('student-a', 'water', 'not-a-date'))
+    );
+  });
+
+  it("another student cannot create or read someone else's event", async () => {
+    await env.withSecurityRulesDisabled(async (ctx) => {
+      const fs = ctx.firestore();
+      await setDoc(eventRef(fs as never, 'e1'), buildEvent('student-a'));
+    });
+    const fs = asUser('student-b');
+    await assertFails(getDoc(eventRef(fs, 'e1')));
+    await assertFails(setDoc(eventRef(fs, 'e2'), buildEvent('student-b')));
+  });
+
+  it('teacher can read events but cannot create/update/delete', async () => {
+    await seedTeacher('teacher-1');
+    await env.withSecurityRulesDisabled(async (ctx) => {
+      const fs = ctx.firestore();
+      await setDoc(eventRef(fs as never, 'e1'), buildEvent('student-a'));
+    });
+    const fs = asUser('teacher-1');
+    await assertSucceeds(getDoc(eventRef(fs, 'e1')));
+    await assertFails(setDoc(eventRef(fs, 'e2'), buildEvent('teacher-1')));
+    await assertFails(deleteDoc(eventRef(fs, 'e1')));
+  });
+
+  it('owner can delete their own event', async () => {
+    await env.withSecurityRulesDisabled(async (ctx) => {
+      const fs = ctx.firestore();
+      await setDoc(eventRef(fs as never, 'e1'), buildEvent('student-a'));
+    });
+    const fs = asUser('student-a');
+    await assertSucceeds(deleteDoc(eventRef(fs, 'e1')));
+  });
+
+  it('rejects updates (append-only)', async () => {
+    await env.withSecurityRulesDisabled(async (ctx) => {
+      const fs = ctx.firestore();
+      await setDoc(eventRef(fs as never, 'e1'), buildEvent('student-a', 'water'));
+    });
+    const fs = asUser('student-a');
+    await assertFails(
+      setDoc(eventRef(fs, 'e1'), buildEvent('student-a', 'fertilizer'))
+    );
+  });
+});
+
+describe('parent share snapshots (shares/{token})', () => {
+  const seedShare = async (token: string, expiresAt: Date) => {
+    await env.withSecurityRulesDisabled(async (ctx) => {
+      const fs = ctx.firestore();
+      await setDoc(doc(fs, 'shares', token), {
+        classId: CLASS_ID,
+        studentUid: 'student-a',
+        studentDisplayName: 'Aさん',
+        records: [],
+        events: [],
+        expiresAt,
+        createdBy: 'student-a',
+      });
+    });
+  };
+
+  it('anyone (even unauthenticated) can read a non-expired share by token', async () => {
+    const future = new Date(Date.now() + 60 * 60 * 1000);
+    await seedShare('t1', future);
+    const fs = asAnon();
+    await assertSucceeds(getDoc(doc(fs, 'shares', 't1')));
+  });
+
+  it('expired shares are unreadable even by signed-in users', async () => {
+    const past = new Date(Date.now() - 60 * 60 * 1000);
+    await seedShare('t2', past);
+    const fs = asUser('student-a');
+    await assertFails(getDoc(doc(fs, 'shares', 't2')));
+  });
+
+  it('no client can write to shares (only Cloud Function via Admin SDK)', async () => {
+    const future = new Date(Date.now() + 60 * 60 * 1000);
+    const fs = asUser('student-a');
+    await assertFails(
+      setDoc(doc(fs, 'shares', 't3'), {
+        classId: CLASS_ID,
+        studentUid: 'student-a',
+        studentDisplayName: 'Aさん',
+        records: [],
+        events: [],
+        expiresAt: future,
+        createdBy: 'student-a',
+      })
+    );
+  });
+
+  it('no client (even teacher) can delete a share', async () => {
+    await seedTeacher('teacher-1');
+    const future = new Date(Date.now() + 60 * 60 * 1000);
+    await seedShare('t4', future);
+    const fs = asUser('teacher-1');
+    await assertFails(deleteDoc(doc(fs, 'shares', 't4')));
+  });
+});
+
 describe('roster (students/{uid})', () => {
   it('student can upsert only their own roster doc with uid+displayName', async () => {
     const fs = asUser('student-a');

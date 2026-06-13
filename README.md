@@ -229,6 +229,29 @@ gcloud firestore export gs://${PROJECT_ID}-backups/manual/$(date +%Y-%m-%d-%H%M)
 
 `firebase functions:config:set backup.bucket="<your-bucket-name>"` ... ではなく、v2 関数の環境変数を使う。`firebase.json` の functions ブロックに `environmentVariables` を追加するか、`gcloud functions deploy dailyFirestoreBackup --update-env-vars BACKUP_BUCKET=<your-bucket>` で上書き可。
 
+## 複数クラス対応 (classId の切替)
+
+`classId` はランタイムで切替可能です。`src/lib/firebase.ts` の
+`getCurrentClassId()` がアプリ全体で参照され、Firestore / Storage / Auth の
+全パス・ドメインに反映されます。
+
+### 動作
+
+- 既定: ビルド時の `VITE_CLASS_ID` または `class-demo`
+- 端末ごとに localStorage キー `plant-grow.classId` に上書き保存
+- ログイン画面下部の「クラス: ... [変更]」リンクから切替可能
+- ID + パスワードが同じでも、クラスが違えば **別アカウント** として扱われる
+  (auth メールが `{ID}@{classId}.invalid` 形式なので classId を含むため)
+
+### 新しいクラスを開設する手順
+
+1. 教員が新しい classId (例: `2027-grade3a`) を決める
+2. 生徒に「ログイン画面の『クラス: ... [変更]』から `2027-grade3a` を入力してから初回登録」を案内
+3. 既存の `class-demo` のデータは無影響、別の名前空間で新クラスが立ち上がる
+
+教員が複数クラスを同時に持つ場合の switcher UI は Phase B で実装予定。
+現状は **「ログアウト → クラス切替 → 別アカウントで再ログイン」** の運用で対応。
+
 ## Storage スキーマ
 
 ```
@@ -240,6 +263,52 @@ classes/{classId}/students/{uid}/photos/{YYYY-MM-DD}/{strainId}-{timestamp}.jpg
 - 写真も生徒ごとのフォルダに分離。Rules で他人のフォルダへのアクセスを拒否。
 - レコード保存時に「直前の写真パス」と比較し、参照されなくなった画像は自動削除して
   Storage の使用量を肥大化させないようにしています。
+
+### オーファン写真クリーンアップ (週次)
+
+クライアント側の即時削除を擦り抜けて Storage に取り残された写真は、
+Cloud Function `cleanupOrphanPhotos` が **毎週日曜 03:00 JST** に掃除します。
+
+仕組み:
+1. 全クラスの records + history を走査して、参照中の photoPath 集合を構築
+2. Storage の `classes/*/students/*/photos/*` を全列挙
+3. 参照集合に含まれず、24h 以上前にアップロードされたファイルを削除
+   （24h バッファは「upload 直後で record save 未完了」の写真を誤削除しないため）
+
+#### 初回デプロイ時の安全運用 (推奨)
+
+最初の 1〜2 回は **dry-run** で「何が消えるはずか」をログだけで確認することを推奨。
+
+```bash
+# dry-run モード ON で再デプロイ
+gcloud functions deploy cleanupOrphanPhotos \
+  --region=asia-northeast1 \
+  --update-env-vars ORPHAN_CLEANUP_DRY_RUN=true
+
+# Cloud Console → Cloud Scheduler から手動実行 → ログで "Would delete: ..." を確認
+
+# 問題なければ dry-run を解除
+gcloud functions deploy cleanupOrphanPhotos \
+  --region=asia-northeast1 \
+  --remove-env-vars ORPHAN_CLEANUP_DRY_RUN
+```
+
+#### 必要な IAM
+
+Cloud Functions のサービスアカウント (Compute Engine デフォルト SA、
+`${PROJECT_NUMBER}-compute@developer.gserviceaccount.com`) に
+**Storage バケットへの delete 権限** が必要。バックアップ初回セットアップで
+`roles/storage.admin` を付与していれば不要だが、未設定なら以下:
+
+```bash
+PROJECT_NUMBER=$(gcloud projects describe $PROJECT_ID --format="value(projectNumber)")
+SA="${PROJECT_NUMBER}-compute@developer.gserviceaccount.com"
+
+# プロジェクト全体に Storage Object Admin (default bucket だけ触らせたい場合)
+gcloud projects add-iam-policy-binding $PROJECT_ID \
+  --member="serviceAccount:${SA}" \
+  --role="roles/storage.objectAdmin"
+```
 
 ## PWA / ホーム画面追加
 

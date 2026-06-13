@@ -14,6 +14,7 @@ import Toast from './components/Toast';
 const GrowthChart = lazy(() => import('./components/GrowthChart'));
 const PhotoTimeline = lazy(() => import('./components/PhotoTimeline'));
 const CommentBoard = lazy(() => import('./components/CommentBoard'));
+const EventLog = lazy(() => import('./components/EventLog'));
 const TeacherDashboard = lazy(() => import('./components/TeacherDashboard'));
 
 const CardFallback = ({ label }: { label: string }) => (
@@ -24,12 +25,26 @@ import {
   fetchRegisteredCategories,
   saveRegisteredCategories,
 } from './lib/categories';
-import { signOutUser, subscribeToAuth } from './lib/firebase';
+import { markAllCommentsRead } from './lib/comments';
+import { subscribeToEvents } from './lib/events';
+import { getCurrentClassId, signOutUser, subscribeToAuth } from './lib/firebase';
 import { classHasNoTeachers } from './lib/firstTeacher';
 import { printPortfolio } from './lib/print';
-import { subscribeToRecords, toDateId, type SaveRecordResult } from './lib/records';
+import {
+  rosterDoc,
+  subscribeToRecords,
+  toDateId,
+  type SaveRecordResult,
+} from './lib/records';
 import { fetchTeacherProfile } from './lib/teacher';
-import type { RecordDoc, TeacherProfile, ToastMessage } from './types';
+import type {
+  EventDoc,
+  RecordDoc,
+  RosterEntry,
+  TeacherProfile,
+  ToastMessage,
+} from './types';
+import { getDoc } from 'firebase/firestore';
 
 type AuthState = { status: 'loading'; user: null } | { status: 'ready'; user: User | null };
 type ViewMode = 'self' | 'teacher';
@@ -38,6 +53,7 @@ export default function App() {
   const [authState, setAuthState] = useState<AuthState>({ status: 'loading', user: null });
   const [selectedDate, setSelectedDate] = useState<string>(() => toDateId(new Date()));
   const [records, setRecords] = useState<RecordDoc[]>([]);
+  const [events, setEvents] = useState<EventDoc[]>([]);
   const [loadError, setLoadError] = useState<string | null>(null);
   const [toast, setToast] = useState<ToastMessage | null>(null);
   const [isOnline, setIsOnline] = useState<boolean>(() =>
@@ -49,6 +65,10 @@ export default function App() {
   // クラスに教員が 1 人もいない時のみ true。FirstTeacherBanner の表示制御に使う。
   const [needsFirstTeacher, setNeedsFirstTeacher] = useState(false);
   const [registeredCategories, setRegisteredCategories] = useState<string[]>([]);
+  // 未読コメントの計算用: ロード時に名簿の commentsLastReadAt をミリ秒で取り込む。
+  // 既読化したら setLastReadMs(Date.now()) で楽観更新 → サーバ書き込み。
+  const [lastReadMs, setLastReadMs] = useState<number>(0);
+  const [unreadComments, setUnreadComments] = useState(0);
 
   useEffect(() => {
     const update = () => setIsOnline(navigator.onLine);
@@ -116,9 +136,10 @@ export default function App() {
   useEffect(() => {
     if (!uid) {
       setRecords([]);
+      setEvents([]);
       return;
     }
-    return subscribeToRecords(
+    const unsubRecords = subscribeToRecords(
       uid,
       (all) => {
         setRecords(all);
@@ -126,18 +147,40 @@ export default function App() {
       },
       (e) => setLoadError(e.message)
     );
+    // 観察イベント (水やり / 肥料 / 天気) も並行購読
+    const unsubEvents = subscribeToEvents(
+      uid,
+      (all) => setEvents(all),
+      () => {}
+    );
+    return () => {
+      unsubRecords();
+      unsubEvents();
+    };
   }, [uid]);
 
   // 登録済み品目を Firestore から取得。失敗時は空のままにしてフォームを止めない。
   useEffect(() => {
     if (!uid) {
       setRegisteredCategories([]);
+      setLastReadMs(0);
+      setUnreadComments(0);
       return;
     }
     let cancelled = false;
     fetchRegisteredCategories(uid)
       .then((list) => {
         if (!cancelled) setRegisteredCategories(list);
+      })
+      .catch(() => {});
+    // 名簿の commentsLastReadAt を 1 回フェッチ。以降は楽観更新で済ませる
+    // (1 ユーザが複数端末同時に開いた時のみ若干ずれるが、画面リロードで解消)。
+    getDoc(rosterDoc(uid))
+      .then((snap) => {
+        if (cancelled || !snap.exists()) return;
+        const data = snap.data() as RosterEntry;
+        const v = data.commentsLastReadAt as { toMillis?: () => number } | undefined;
+        setLastReadMs(typeof v?.toMillis === 'function' ? v.toMillis() : 0);
       })
       .catch(() => {});
     return () => {
@@ -206,6 +249,9 @@ export default function App() {
               : user.displayName
                 ? `${user.displayName} さんの観察記録`
                 : 'タブレットで観察記録'}
+            <span className="ml-2 rounded-full bg-slate-100 px-2 py-0.5 text-xs text-slate-600">
+              クラス: {getCurrentClassId()}
+            </span>
           </p>
         </div>
         <div className="flex items-center gap-3">
@@ -322,6 +368,15 @@ export default function App() {
               />
             </div>
 
+            <Suspense fallback={<CardFallback label="観察イベント" />}>
+              <EventLog
+                studentUid={user.uid}
+                dateId={selectedDate}
+                events={events}
+                poster={user}
+              />
+            </Suspense>
+
             <div className="flex justify-end gap-2 print:hidden">
               <ExportCsvButton
                 records={records}
@@ -339,7 +394,7 @@ export default function App() {
             </div>
 
             <Suspense fallback={<CardFallback label="グラフ" />}>
-              <GrowthChart records={records} />
+              <GrowthChart records={records} events={events} />
             </Suspense>
 
             <RecordsList
@@ -354,7 +409,15 @@ export default function App() {
 
             {records.length > 0 && (
               <Suspense fallback={<CardFallback label="コメント" />}>
-                <CommentBoard studentUid={user.uid} records={records} />
+                <CommentBoard
+                  studentUid={user.uid}
+                  records={records}
+                  viewer={{
+                    uid: user.uid,
+                    lastReadAt: { toMillis: () => lastReadMs },
+                  }}
+                  onUnreadCountChange={setUnreadComments}
+                />
               </Suspense>
             )}
           </>
@@ -362,8 +425,34 @@ export default function App() {
       </main>
 
       <footer className="mx-auto mt-10 max-w-5xl text-center text-xs text-slate-400 print:hidden">
-        MVP build — {new Date().getFullYear()}
+        <p>MVP build — {new Date().getFullYear()}</p>
+        <p className="mt-1">
+          <a href="/privacy" className="underline hover:text-leaf-700">
+            プライバシーポリシー
+          </a>
+        </p>
       </footer>
+
+      {/* 未読コメントのフローティングバッジ。生徒モード時のみ、未読 > 0 の時だけ表示。
+          タップでコメント欄へスムーズスクロール + 楽観的に既読化 (UI は即座に消える)。 */}
+      {!showTeacherView && unreadComments > 0 && (
+        <button
+          type="button"
+          onClick={() => {
+            document
+              .getElementById('comment-board')
+              ?.scrollIntoView({ behavior: 'smooth', block: 'start' });
+            // 楽観更新でバッジを即座に消す。サーバ書き込みは失敗しても UI は維持。
+            setLastReadMs(Date.now());
+            setUnreadComments(0);
+            markAllCommentsRead(user).catch(() => {});
+          }}
+          className="fixed bottom-20 right-4 z-40 flex items-center gap-2 rounded-full bg-amber-500 px-4 py-3 text-sm font-semibold text-white shadow-lg hover:bg-amber-600 print:hidden"
+          aria-label={`先生からの新しいコメント ${unreadComments} 件`}
+        >
+          💬 新しいコメント {unreadComments}
+        </button>
+      )}
 
       <div className="print:hidden">
         <Toast toast={toast} onDismiss={() => setToast(null)} />

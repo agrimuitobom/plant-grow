@@ -4,6 +4,7 @@ import {
   Legend,
   Line,
   LineChart,
+  ReferenceLine,
   ResponsiveContainer,
   Tooltip,
   XAxis,
@@ -14,15 +15,21 @@ import {
   dailyAveragesFor,
   uniqueCategories,
 } from '../lib/categories';
-import type { RecordDoc } from '../types';
+import type { EventDoc, RecordDoc } from '../types';
 
 type GrowthChartProps = {
   records: RecordDoc[];
+  /**
+   * 水やり / 肥料イベント。指定すると該当日にカラーリング縦線を引く。
+   * 教育目的: 「水やり後 N 日で草丈が伸びた」のような因果を視覚的に提示する。
+   * 天気イベントはチャートが汚くなるので意図的に含めない。
+   */
+  events?: EventDoc[];
 };
 
 const ALL_KEY = '__ALL__';
 
-export default function GrowthChart({ records }: GrowthChartProps) {
+export default function GrowthChart({ records, events = [] }: GrowthChartProps) {
   const [selected, setSelected] = useState<string>(ALL_KEY);
 
   const categories = useMemo(() => uniqueCategories(records), [records]);
@@ -30,6 +37,19 @@ export default function GrowthChart({ records }: GrowthChartProps) {
   // 「未分類」しかない (= 品目機能を使っていない) 場合は従来通りのシンプル表示。
   const showCategoryTabs =
     categories.length > 1 || (categories.length === 1 && categories[0] !== UNCATEGORIZED);
+
+  // チャート X 軸に存在する日付だけマーカーを出す (グラフの外側に縦線を引いても意味がないため)。
+  const eventMarkers = useMemo(() => {
+    const datesOnAxis = new Set(records.map((r) => r.date));
+    const water = new Set<string>();
+    const fertilizer = new Set<string>();
+    for (const e of events) {
+      if (!datesOnAxis.has(e.date)) continue;
+      if (e.type === 'water') water.add(e.date);
+      else if (e.type === 'fertilizer') fertilizer.add(e.date);
+    }
+    return { water: [...water], fertilizer: [...fertilizer] };
+  }, [events, records]);
 
   const data = useMemo(() => {
     const filterCategory = selected === ALL_KEY ? null : selected;
@@ -102,6 +122,27 @@ export default function GrowthChart({ records }: GrowthChartProps) {
               />
               <Tooltip />
               <Legend />
+              {/* イベントの縦線オーバーレイ。Line より前に置くと線の下に来て見やすい。 */}
+              {eventMarkers.water.map((date) => (
+                <ReferenceLine
+                  key={`water-${date}`}
+                  yAxisId="left"
+                  x={date}
+                  stroke="#0ea5e9"
+                  strokeDasharray="3 3"
+                  ifOverflow="visible"
+                />
+              ))}
+              {eventMarkers.fertilizer.map((date) => (
+                <ReferenceLine
+                  key={`fert-${date}`}
+                  yAxisId="left"
+                  x={date}
+                  stroke="#16a34a"
+                  strokeDasharray="3 3"
+                  ifOverflow="visible"
+                />
+              ))}
               <Line
                 yAxisId="left"
                 type="monotone"
@@ -126,6 +167,31 @@ export default function GrowthChart({ records }: GrowthChartProps) {
           </ResponsiveContainer>
         )}
       </div>
+
+      {(eventMarkers.water.length > 0 || eventMarkers.fertilizer.length > 0) && (
+        <div className="mt-2 flex flex-wrap gap-3 text-xs text-slate-500">
+          {eventMarkers.water.length > 0 && (
+            <span className="inline-flex items-center gap-1">
+              <span
+                aria-hidden
+                className="inline-block h-3 w-3 border-y-2 border-dashed"
+                style={{ borderColor: '#0ea5e9' }}
+              />
+              💧 水やり ({eventMarkers.water.length} 日)
+            </span>
+          )}
+          {eventMarkers.fertilizer.length > 0 && (
+            <span className="inline-flex items-center gap-1">
+              <span
+                aria-hidden
+                className="inline-block h-3 w-3 border-y-2 border-dashed"
+                style={{ borderColor: '#16a34a' }}
+              />
+              🌱 肥料 ({eventMarkers.fertilizer.length} 日)
+            </span>
+          )}
+        </div>
+      )}
     </div>
   );
 }

@@ -1,5 +1,10 @@
 import { useState } from 'react';
-import { signInWithIdPassword, signUpWithIdPassword } from '../lib/firebase';
+import {
+  getCurrentClassId,
+  setCurrentClassId,
+  signInWithIdPassword,
+  signUpWithIdPassword,
+} from '../lib/firebase';
 
 type Mode = 'signin' | 'signup';
 type Status = 'idle' | 'loading' | 'error';
@@ -32,6 +37,12 @@ export default function SignInScreen() {
   const [displayName, setDisplayName] = useState('');
   const [password, setPassword] = useState('');
   const [confirmPassword, setConfirmPassword] = useState('');
+  // 初回登録時のプライバシーポリシー同意。サインインモードでは不要。
+  const [agreedToPolicy, setAgreedToPolicy] = useState(false);
+  // クラス ID。サインイン/サインアップ前に切り替える必要がある (auth email に classId が含まれるため)。
+  // 初期値は localStorage から読んだ既定値。
+  const [classIdInput, setClassIdInput] = useState(getCurrentClassId());
+  const [showClassField, setShowClassField] = useState(false);
   const [status, setStatus] = useState<Status>('idle');
   const [error, setError] = useState<string | null>(null);
 
@@ -56,7 +67,14 @@ export default function SignInScreen() {
         setError('パスワードが一致しません。');
         return;
       }
+      if (!agreedToPolicy) {
+        setError('プライバシーポリシーに同意してから登録してください。');
+        return;
+      }
     }
+
+    // submit より前にクラス ID を確定させる。auth email の domain に組み込まれるため。
+    setCurrentClassId(classIdInput);
 
     setStatus('loading');
     try {
@@ -80,6 +98,7 @@ export default function SignInScreen() {
     setStatus('idle');
     setConfirmPassword('');
     setDisplayName('');
+    setAgreedToPolicy(false);
   };
 
   return (
@@ -182,6 +201,28 @@ export default function SignInScreen() {
             </div>
           )}
 
+          {mode === 'signup' && (
+            <label className="flex items-start gap-2 text-sm text-slate-700">
+              <input
+                type="checkbox"
+                checked={agreedToPolicy}
+                onChange={(e) => setAgreedToPolicy(e.target.checked)}
+                className="mt-1 h-5 w-5 flex-shrink-0"
+              />
+              <span>
+                <a
+                  href="/privacy"
+                  target="_blank"
+                  rel="noreferrer"
+                  className="text-leaf-700 underline"
+                >
+                  プライバシーポリシー
+                </a>
+                を読み、同意します。
+              </span>
+            </label>
+          )}
+
           <button
             type="submit"
             className="btn-primary"
@@ -206,6 +247,34 @@ export default function SignInScreen() {
             ? 'まだ ID を作っていない場合は「初回登録」を選択。'
             : 'すでに ID を持っている場合は「ログイン」を選択。'}
         </p>
+
+        {/* クラス切替: 通常は隠してあるが、新クラスに移るときや別クラスにログインするときに使う。
+            現在の classId は同時に下に小さく表示しておく。 */}
+        <div className="mt-3 text-center text-xs text-slate-400">
+          <span>クラス: {classIdInput}</span>
+          <button
+            type="button"
+            onClick={() => setShowClassField((v) => !v)}
+            className="ml-2 text-leaf-700 underline"
+          >
+            {showClassField ? '閉じる' : '変更'}
+          </button>
+        </div>
+        {showClassField && (
+          <div className="mt-2">
+            <label className="block text-xs text-slate-500">クラス ID</label>
+            <input
+              type="text"
+              value={classIdInput}
+              onChange={(e) => setClassIdInput(e.target.value)}
+              placeholder="例: class-demo, 2027-grade3a"
+              autoCapitalize="off"
+            />
+            <p className="mt-1 text-xs text-slate-400">
+              ※ 同じ ID + パスワードでも、クラスが違うと別アカウントになります。先生に確認してください。
+            </p>
+          </div>
+        )}
       </div>
     </div>
   );

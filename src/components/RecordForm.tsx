@@ -2,6 +2,7 @@ import { useEffect, useMemo, useState } from 'react';
 import type { User } from 'firebase/auth';
 import HistoryPanel from './HistoryPanel';
 import StrainRow from './StrainRow';
+import { formatAuditCaption } from '../lib/audit';
 import { UNCATEGORIZED, calcAveragesByCategory } from '../lib/categories';
 import { calcAverages, fetchRecord, saveRecord, type SaveRecordResult } from '../lib/records';
 import type { RecordDoc, Strain, StrainFormValue } from '../types';
@@ -46,10 +47,14 @@ export default function RecordForm({
   const [error, setError] = useState<string | null>(null);
   const [uploadingCount, setUploadingCount] = useState(0);
   const [historyRefreshKey, setHistoryRefreshKey] = useState(0);
+  // 既存レコードを開いた時にタイトル横に「最終更新: ...」バッジを出すためのキャプション。
+  // 新規日付や読込前は空文字。
+  const [auditCaption, setAuditCaption] = useState('');
 
   useEffect(() => {
     let cancelled = false;
     setStatus('loading');
+    setAuditCaption('');
     fetchRecord(user.uid, dateId)
       .then((record) => {
         if (cancelled) return;
@@ -65,6 +70,12 @@ export default function RecordForm({
               photoPath: s.photoPath ?? null,
               photoUrl: s.photoUrl ?? null,
             }))
+          );
+          setAuditCaption(
+            formatAuditCaption({
+              name: record.updatedByName,
+              timestamp: record.updatedAt ?? null,
+            })
           );
         } else {
           setStrains(DEFAULT_STRAINS);
@@ -182,7 +193,17 @@ export default function RecordForm({
   return (
     <form onSubmit={handleSubmit} className="flex flex-col gap-4">
       <header className="flex flex-wrap items-center justify-between gap-2">
-        <h2 className="text-2xl font-bold text-leaf-700">{dateId} の記録</h2>
+        <div className="flex flex-wrap items-baseline gap-2">
+          <h2 className="text-2xl font-bold text-leaf-700">{dateId} の記録</h2>
+          {auditCaption && (
+            <span
+              className="rounded-full bg-slate-100 px-2 py-0.5 text-xs text-slate-500"
+              title="この日のレコードの最終更新者と時刻"
+            >
+              最終更新: {auditCaption}
+            </span>
+          )}
+        </div>
         <div className="flex flex-wrap items-center gap-2">
           <button
             type="button"
