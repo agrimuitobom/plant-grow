@@ -32,6 +32,8 @@ export default function SignInScreen() {
   const [displayName, setDisplayName] = useState('');
   const [password, setPassword] = useState('');
   const [confirmPassword, setConfirmPassword] = useState('');
+  // 初回登録時のプライバシーポリシー同意。サインインモードでは不要。
+  const [agreedToPolicy, setAgreedToPolicy] = useState(false);
   const [status, setStatus] = useState<Status>('idle');
   const [error, setError] = useState<string | null>(null);
 
@@ -54,6 +56,10 @@ export default function SignInScreen() {
       }
       if (password !== confirmPassword) {
         setError('パスワードが一致しません。');
+        return;
+      }
+      if (!agreedToPolicy) {
+        setError('プライバシーポリシーに同意してから登録してください。');
         return;
       }
     }
@@ -80,6 +86,7 @@ export default function SignInScreen() {
     setStatus('idle');
     setConfirmPassword('');
     setDisplayName('');
+    setAgreedToPolicy(false);
   };
 
   return (
@@ -180,6 +187,28 @@ export default function SignInScreen() {
                 required
               />
             </div>
+          )}
+
+          {mode === 'signup' && (
+            <label className="flex items-start gap-2 text-sm text-slate-700">
+              <input
+                type="checkbox"
+                checked={agreedToPolicy}
+                onChange={(e) => setAgreedToPolicy(e.target.checked)}
+                className="mt-1 h-5 w-5 flex-shrink-0"
+              />
+              <span>
+                <a
+                  href="/privacy"
+                  target="_blank"
+                  rel="noreferrer"
+                  className="text-leaf-700 underline"
+                >
+                  プライバシーポリシー
+                </a>
+                を読み、同意します。
+              </span>
+            </label>
           )}
 
           <button

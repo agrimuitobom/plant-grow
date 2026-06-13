@@ -422,7 +422,12 @@ export default function App() {
       </main>
 
       <footer className="mx-auto mt-10 max-w-5xl text-center text-xs text-slate-400 print:hidden">
-        MVP build — {new Date().getFullYear()}
+        <p>MVP build — {new Date().getFullYear()}</p>
+        <p className="mt-1">
+          <a href="/privacy" className="underline hover:text-leaf-700">
+            プライバシーポリシー
+          </a>
+        </p>
       </footer>
 
       {/* 未読コメントのフローティングバッジ。生徒モード時のみ、未読 > 0 の時だけ表示。
