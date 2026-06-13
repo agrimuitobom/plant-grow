@@ -63,6 +63,11 @@ export type RosterEntry = {
   lastRecordedAt?: Timestamp | FieldValue;
   /** 登録済み品目リスト。フォームの品目プルダウンに並ぶ。 */
   categories?: string[];
+  /**
+   * この生徒が「先生からのコメントを最後に既読にした時刻」。未設定 = 一度も既読化していない
+   * (全コメントが未読扱い)。クライアントから markAllCommentsRead で更新する。
+   */
+  commentsLastReadAt?: Timestamp | FieldValue;
 };
 
 /** 教員ドキュメント (Firebase Console から手動で追加する運用)。 */

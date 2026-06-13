@@ -7,9 +7,12 @@ import {
   orderBy,
   query,
   serverTimestamp,
+  setDoc,
   updateDoc,
 } from 'firebase/firestore';
+import type { User } from 'firebase/auth';
 import { CLASS_ID, db } from './firebase';
+import { rosterDoc } from './records';
 import type { CommentDoc } from '../types';
 
 function commentsCol(uid: string, dateId: string) {
@@ -77,4 +80,45 @@ export async function deleteComment(
   commentId: string
 ): Promise<void> {
   await deleteDoc(doc(commentsCol(studentUid, dateId), commentId));
+}
+
+/**
+ * 「先生からのコメントを全て既読にした」とマークする。
+ * 名簿ドキュメントの commentsLastReadAt を serverTimestamp で上書きする。
+ * Rules は uid + displayName が一致する update を許可しているのでそれら 2 つも一緒に書く。
+ */
+export async function markAllCommentsRead(
+  user: Pick<User, 'uid' | 'displayName' | 'email'>
+): Promise<void> {
+  await setDoc(
+    rosterDoc(user.uid),
+    {
+      uid: user.uid,
+      displayName: user.displayName || user.email || user.uid,
+      commentsLastReadAt: serverTimestamp(),
+    },
+    { merge: true }
+  );
+}
+
+/**
+ * 「未読」と判定するヘルパ: 自分以外が書いた、かつ既読時刻より新しいコメントを数える。
+ * commentsLastReadAt 未設定 (= 一度も既読化していない) なら全コメント (他人作) が未読扱い。
+ */
+export function countUnreadComments(
+  comments: readonly CommentDoc[],
+  myUid: string,
+  lastReadAt: { toMillis?: () => number } | undefined | null
+): number {
+  const lastMs = lastReadAt && typeof lastReadAt.toMillis === 'function'
+    ? lastReadAt.toMillis()
+    : 0;
+  return comments.filter((c) => {
+    if (c.createdBy === myUid) return false;
+    const created = c.createdAt as { toMillis?: () => number } | undefined;
+    const createdMs = created && typeof created.toMillis === 'function'
+      ? created.toMillis()
+      : 0;
+    return createdMs > lastMs;
+  }).length;
 }

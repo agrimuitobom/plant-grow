@@ -24,12 +24,19 @@ import {
   fetchRegisteredCategories,
   saveRegisteredCategories,
 } from './lib/categories';
+import { markAllCommentsRead } from './lib/comments';
 import { signOutUser, subscribeToAuth } from './lib/firebase';
 import { classHasNoTeachers } from './lib/firstTeacher';
 import { printPortfolio } from './lib/print';
-import { subscribeToRecords, toDateId, type SaveRecordResult } from './lib/records';
+import {
+  rosterDoc,
+  subscribeToRecords,
+  toDateId,
+  type SaveRecordResult,
+} from './lib/records';
 import { fetchTeacherProfile } from './lib/teacher';
-import type { RecordDoc, TeacherProfile, ToastMessage } from './types';
+import type { RecordDoc, RosterEntry, TeacherProfile, ToastMessage } from './types';
+import { getDoc } from 'firebase/firestore';
 
 type AuthState = { status: 'loading'; user: null } | { status: 'ready'; user: User | null };
 type ViewMode = 'self' | 'teacher';
@@ -49,6 +56,10 @@ export default function App() {
   // クラスに教員が 1 人もいない時のみ true。FirstTeacherBanner の表示制御に使う。
   const [needsFirstTeacher, setNeedsFirstTeacher] = useState(false);
   const [registeredCategories, setRegisteredCategories] = useState<string[]>([]);
+  // 未読コメントの計算用: ロード時に名簿の commentsLastReadAt をミリ秒で取り込む。
+  // 既読化したら setLastReadMs(Date.now()) で楽観更新 → サーバ書き込み。
+  const [lastReadMs, setLastReadMs] = useState<number>(0);
+  const [unreadComments, setUnreadComments] = useState(0);
 
   useEffect(() => {
     const update = () => setIsOnline(navigator.onLine);
@@ -132,12 +143,24 @@ export default function App() {
   useEffect(() => {
     if (!uid) {
       setRegisteredCategories([]);
+      setLastReadMs(0);
+      setUnreadComments(0);
       return;
     }
     let cancelled = false;
     fetchRegisteredCategories(uid)
       .then((list) => {
         if (!cancelled) setRegisteredCategories(list);
+      })
+      .catch(() => {});
+    // 名簿の commentsLastReadAt を 1 回フェッチ。以降は楽観更新で済ませる
+    // (1 ユーザが複数端末同時に開いた時のみ若干ずれるが、画面リロードで解消)。
+    getDoc(rosterDoc(uid))
+      .then((snap) => {
+        if (cancelled || !snap.exists()) return;
+        const data = snap.data() as RosterEntry;
+        const v = data.commentsLastReadAt as { toMillis?: () => number } | undefined;
+        setLastReadMs(typeof v?.toMillis === 'function' ? v.toMillis() : 0);
       })
       .catch(() => {});
     return () => {
@@ -354,7 +377,15 @@ export default function App() {
 
             {records.length > 0 && (
               <Suspense fallback={<CardFallback label="コメント" />}>
-                <CommentBoard studentUid={user.uid} records={records} />
+                <CommentBoard
+                  studentUid={user.uid}
+                  records={records}
+                  viewer={{
+                    uid: user.uid,
+                    lastReadAt: { toMillis: () => lastReadMs },
+                  }}
+                  onUnreadCountChange={setUnreadComments}
+                />
               </Suspense>
             )}
           </>
@@ -364,6 +395,27 @@ export default function App() {
       <footer className="mx-auto mt-10 max-w-5xl text-center text-xs text-slate-400 print:hidden">
         MVP build — {new Date().getFullYear()}
       </footer>
+
+      {/* 未読コメントのフローティングバッジ。生徒モード時のみ、未読 > 0 の時だけ表示。
+          タップでコメント欄へスムーズスクロール + 楽観的に既読化 (UI は即座に消える)。 */}
+      {!showTeacherView && unreadComments > 0 && (
+        <button
+          type="button"
+          onClick={() => {
+            document
+              .getElementById('comment-board')
+              ?.scrollIntoView({ behavior: 'smooth', block: 'start' });
+            // 楽観更新でバッジを即座に消す。サーバ書き込みは失敗しても UI は維持。
+            setLastReadMs(Date.now());
+            setUnreadComments(0);
+            markAllCommentsRead(user).catch(() => {});
+          }}
+          className="fixed bottom-20 right-4 z-40 flex items-center gap-2 rounded-full bg-amber-500 px-4 py-3 text-sm font-semibold text-white shadow-lg hover:bg-amber-600 print:hidden"
+          aria-label={`先生からの新しいコメント ${unreadComments} 件`}
+        >
+          💬 新しいコメント {unreadComments}
+        </button>
+      )}
 
       <div className="print:hidden">
         <Toast toast={toast} onDismiss={() => setToast(null)} />
