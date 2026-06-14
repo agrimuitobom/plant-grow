@@ -40,7 +40,7 @@ npm run dev
 ### 4. デプロイ (GitHub Actions 経由・推奨)
 
 `main` ブランチに push すると `.github/workflows/deploy.yml` が走り、
-Hosting + Firestore ルール + Storage ルールを自動デプロイします。
+Hosting + Firestore ルール + Storage ルール + **Cloud Functions** を自動デプロイします。
 
 事前に GitHub リポジトリの **Settings → Secrets and variables → Actions** に以下を登録:
 
@@ -59,6 +59,43 @@ Hosting + Firestore ルール + Storage ルールを自動デプロイします�
 1. [Firebase Console → プロジェクトの設定 → サービス アカウント](https://console.firebase.google.com/project/plant-research-b106b/settings/serviceaccounts/adminsdk)
 2. 「新しい秘密鍵の生成」→ JSON ダウンロード
 3. ファイルの中身をまるごとコピー → GitHub Secret `FIREBASE_SERVICE_ACCOUNT_PLANT_RESEARCH_B106B` に貼り付け
+
+### 4-A. Cloud Functions デプロイに必要な追加 IAM 権限
+
+Functions の自動デプロイを動かすには、上記のサービスアカウントに以下のロールが必要:
+
+| 役割 | 用途 |
+|---|---|
+| `Firebase Admin` | Functions デプロイ全般のオーケストレーション |
+| `Cloud Functions Admin` | 関数本体の作成・更新 |
+| `Cloud Run Admin` | v2 関数の裏側 (Cloud Run サービス) の管理 |
+| `Cloud Build Editor` | コンテナイメージのビルド |
+| `Artifact Registry Writer` | ビルド成果物の保存先への push |
+| `Service Account User` | 関数実行 SA に化ける権限 |
+
+Cloud Shell から一括付与:
+
+```bash
+PROJECT_ID=plant-research-b106b
+SA_EMAIL=$(gcloud iam service-accounts list \
+  --filter="displayName:firebase-adminsdk" \
+  --format="value(email)")
+echo "SA: $SA_EMAIL"
+
+for role in \
+  roles/firebase.admin \
+  roles/cloudfunctions.admin \
+  roles/run.admin \
+  roles/cloudbuild.builds.editor \
+  roles/artifactregistry.writer \
+  roles/iam.serviceAccountUser
+do
+  gcloud projects add-iam-policy-binding $PROJECT_ID \
+    --member="serviceAccount:${SA_EMAIL}" \
+    --role="$role" \
+    --condition=None
+done
+```
 
 ### 4-B. 手動デプロイ (フォールバック)
 
@@ -351,7 +388,7 @@ GitHub Actions ワークフロー 2 本でカバーしている:
 | ワークフロー | トリガ | 実行内容 |
 |-------------|-------|---------|
 | `.github/workflows/test.yml` | PR (→ main) / main 以外への push | typecheck + 単体テスト + Rules テスト + functions ビルド |
-| `.github/workflows/deploy.yml` | main への push | typecheck + 単体テスト + Hosting / Rules デプロイ |
+| `.github/workflows/deploy.yml` | main への push | typecheck + 単体テスト + Hosting / Rules / Functions デプロイ |
 
 ### Branch Protection 推奨設定
 
