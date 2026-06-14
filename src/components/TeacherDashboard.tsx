@@ -2,6 +2,7 @@ import { useCallback, useEffect, useState } from 'react';
 import CommentBoard from './CommentBoard';
 import ExportCsvButton from './ExportCsvButton';
 import GrowthChart from './GrowthChart';
+import AuditLogPanel from './AuditLogPanel';
 import ParentSharePanel from './ParentSharePanel';
 import PasswordResetPanel from './PasswordResetPanel';
 import StorageUsageCard from './StorageUsageCard';
@@ -454,6 +455,8 @@ export default function TeacherDashboard({ currentUid, currentDisplayName }: Pro
               </ul>
             )}
           </section>
+
+          <AuditLogPanel />
         </>
       )}
     </div>

@@ -4,8 +4,12 @@ import {
   doc,
   getDoc,
   getDocs,
+  limit,
   onSnapshot,
+  orderBy,
+  query,
   setDoc,
+  type Timestamp,
   type Unsubscribe,
 } from 'firebase/firestore';
 import { db, getCurrentClassId } from './firebase';
@@ -86,4 +90,33 @@ export async function promoteToTeacher(profile: TeacherProfile): Promise<void> {
 export async function demoteTeacher(uid: string): Promise<void> {
   const ref = doc(db, 'classes', getCurrentClassId(), 'teachers', uid);
   await deleteDoc(ref);
+}
+
+/**
+ * パスワードリセットの監査ログ 1 エントリ。Cloud Function (resetStudentPassword) が
+ * 成功した時に Admin SDK で書き込んでいる。Rules で「同クラスの教員」が read 可。
+ */
+export type PasswordResetLog = {
+  id: string;
+  studentUid: string;
+  studentDisplayName: string | null;
+  resetBy: string;
+  resetByName: string | null;
+  at?: Timestamp;
+};
+
+/**
+ * 直近のパスワードリセットを新しい順で返す。教員管理タブの操作ログ表示に使う。
+ * 既定 50 件まで取得 (運用上、必要十分な遡及期間で UI を重くしない)。
+ */
+export async function listRecentPasswordResets(
+  max = 50
+): Promise<PasswordResetLog[]> {
+  const ref = collection(db, 'classes', getCurrentClassId(), 'passwordResets');
+  const q = query(ref, orderBy('at', 'desc'), limit(max));
+  const snap = await getDocs(q);
+  return snap.docs.map((d) => ({
+    id: d.id,
+    ...(d.data() as Omit<PasswordResetLog, 'id'>),
+  }));
 }
