@@ -279,18 +279,22 @@ Cloud Function `cleanupOrphanPhotos` が **毎週日曜 03:00 JST** に掃除し
 
 最初の 1〜2 回は **dry-run** で「何が消えるはずか」をログだけで確認することを推奨。
 
+Firebase Functions v2 は実体が Cloud Run なので、環境変数の切替は
+`gcloud functions deploy` ではなく **`gcloud run services update`** を使う
+(Cloud Run のサービス名は関数名の lowercase)。
+
 ```bash
-# dry-run モード ON で再デプロイ
-gcloud functions deploy cleanupOrphanPhotos \
+# dry-run モード ON
+gcloud run services update cleanuporphanphotos \
   --region=asia-northeast1 \
-  --update-env-vars ORPHAN_CLEANUP_DRY_RUN=true
+  --update-env-vars=ORPHAN_CLEANUP_DRY_RUN=true
 
 # Cloud Console → Cloud Scheduler から手動実行 → ログで "Would delete: ..." を確認
 
 # 問題なければ dry-run を解除
-gcloud functions deploy cleanupOrphanPhotos \
+gcloud run services update cleanuporphanphotos \
   --region=asia-northeast1 \
-  --remove-env-vars ORPHAN_CLEANUP_DRY_RUN
+  --remove-env-vars=ORPHAN_CLEANUP_DRY_RUN
 ```
 
 #### 必要な IAM

@@ -472,3 +472,74 @@ function collectPhotoPaths(
     if (s?.photoPath && typeof s.photoPath === 'string') out.add(s.photoPath);
   }
 }
+
+interface UsageData {
+  classId: string;
+}
+
+/**
+ * 指定クラスの写真容量を集計して返す。教員のみ呼び出し可能。
+ *
+ * 用途:
+ *   - 教員ダッシュボードに「クラス全体: 350MB ({N}枚)」を表示
+ *   - Blaze プランの月次請求が膨らむ前に「もうすぐ無料枠超えそう」と気付ける
+ *
+ * 集計範囲: `classes/{classId}/students/* /photos/...` の全ファイル。
+ * Storage 容量はリストAPI でメタデータと一緒に返るので、個別 getMetadata は不要。
+ * クラス規模 (数千枚オーダー) なら 1〜3 秒で完了する。
+ */
+export const getStorageUsage = onCall<UsageData>(async (req) => {
+  if (!req.auth) {
+    throw new HttpsError('unauthenticated', 'ログインが必要です。');
+  }
+  const callerUid = req.auth.uid;
+  const { classId } = req.data ?? ({} as UsageData);
+  if (!classId) {
+    throw new HttpsError('invalid-argument', 'classId は必須です。');
+  }
+
+  // 教員のみ
+  const db = getFirestore();
+  const teacherSnap = await db
+    .collection('classes')
+    .doc(classId)
+    .collection('teachers')
+    .doc(callerUid)
+    .get();
+  if (!teacherSnap.exists) {
+    throw new HttpsError(
+      'permission-denied',
+      'このクラスの教員のみ集計を取得できます。'
+    );
+  }
+
+  const bucket = getStorage().bucket();
+  const [files] = await bucket.getFiles({ prefix: `classes/${classId}/` });
+
+  let totalBytes = 0;
+  let photoCount = 0;
+  for (const file of files) {
+    if (!file.name.includes('/photos/')) continue;
+    // bucket.getFiles の戻り値 (File オブジェクト) は metadata.size を保持しているはず。
+    // 念のためフォールバックで getMetadata する。
+    const sizeFromMeta = file.metadata?.size;
+    let size = 0;
+    if (typeof sizeFromMeta === 'string') size = Number(sizeFromMeta);
+    else if (typeof sizeFromMeta === 'number') size = sizeFromMeta;
+    else {
+      try {
+        const [m] = await file.getMetadata();
+        size = Number(m.size) || 0;
+      } catch {
+        size = 0;
+      }
+    }
+    totalBytes += size;
+    photoCount++;
+  }
+
+  logger.info(
+    `Storage usage queried: classId=${classId} totalBytes=${totalBytes} photoCount=${photoCount} by=${callerUid}`
+  );
+  return { totalBytes, photoCount, computedAt: Date.now() };
+});
