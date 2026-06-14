@@ -29,8 +29,7 @@ describe('recordsToCsv', () => {
           height: 12.5,
           leafCount: 6,
           memo: '',
-          photoPath: null,
-          photoUrl: 'https://x/a.jpg',
+          photos: [{ path: 'p/a.jpg', url: 'https://x/a.jpg' }],
         },
         {
           id: 'B',
@@ -39,8 +38,7 @@ describe('recordsToCsv', () => {
           height: null,
           leafCount: null,
           memo: '',
-          photoPath: null,
-          photoUrl: null,
+          photos: [],
         },
       ]),
     ]);
@@ -50,6 +48,51 @@ describe('recordsToCsv', () => {
         '2026-04-20,トマト,A株,12.5,6,https://x/a.jpg',
         '2026-04-20,ナス,B株,,,',
       ].join('\r\n')
+    );
+  });
+
+  it('joins multiple photos per strain with newlines (one cell, Excel renders as line breaks)', () => {
+    const csv = recordsToCsv([
+      rec('2026-04-23', [
+        {
+          id: 'A',
+          category: 'トマト',
+          name: 'A株',
+          height: 13,
+          leafCount: 7,
+          memo: '',
+          photos: [
+            { path: 'p/a-1.jpg', url: 'https://x/a-1.jpg' },
+            { path: 'p/a-2.jpg', url: 'https://x/a-2.jpg' },
+            { path: 'p/a-3.jpg', url: 'https://x/a-3.jpg' },
+          ],
+        },
+      ]),
+    ]);
+    // 改行入りフィールドはダブルクォートで囲まれる (RFC 4180 + Excel 仕様)
+    expect(csv.split('\r\n')[1]).toBe(
+      '2026-04-23,トマト,A株,13,7,"https://x/a-1.jpg\nhttps://x/a-2.jpg\nhttps://x/a-3.jpg"'
+    );
+  });
+
+  it('legacy single-photo records (photoPath + photoUrl) still produce CSV', () => {
+    const csv = recordsToCsv([
+      rec('2026-04-19', [
+        {
+          id: 'A',
+          category: 'トマト',
+          name: 'A株',
+          height: 10,
+          leafCount: 5,
+          memo: '',
+          // 3 週間前にデプロイされたコードで保存された旧形式の strain
+          photoPath: 'p/legacy.jpg',
+          photoUrl: 'https://x/legacy.jpg',
+        },
+      ]),
+    ]);
+    expect(csv.split('\r\n')[1]).toBe(
+      '2026-04-19,トマト,A株,10,5,https://x/legacy.jpg'
     );
   });
 
@@ -63,8 +106,7 @@ describe('recordsToCsv', () => {
           height: 10,
           leafCount: 5,
           memo: '',
-          photoPath: null,
-          photoUrl: null,
+          photos: [],
         },
         {
           id: 'B',
@@ -73,8 +115,7 @@ describe('recordsToCsv', () => {
           height: 11,
           leafCount: 5,
           memo: '',
-          photoPath: null,
-          photoUrl: null,
+          photos: [],
         },
         {
           id: 'C',
@@ -83,8 +124,7 @@ describe('recordsToCsv', () => {
           height: 12,
           leafCount: 5,
           memo: '',
-          photoPath: null,
-          photoUrl: null,
+          photos: [],
         },
       ]),
     ]);
@@ -99,7 +139,7 @@ describe('recordsToCsv', () => {
       rec('2026-04-22', [
         {
           id: 'A',
-          // category, photoPath, photoUrl 省略
+          // category, photos 省略
           name: '',
           height: null,
           leafCount: null,
@@ -107,7 +147,7 @@ describe('recordsToCsv', () => {
         } as never,
       ]),
     ]);
-    // name 空 → s.id にフォールバック ('A'), category undefined → '', photoUrl undefined → ''
+    // name 空 → s.id にフォールバック ('A'), category undefined → '', photos undefined → ''
     expect(csv.split('\r\n')[1]).toBe('2026-04-22,,A,,,');
   });
 });

@@ -1,5 +1,6 @@
 import { useMemo, useState } from 'react';
 import { UNCATEGORIZED, categoryOf, uniqueCategories } from '../lib/categories';
+import { getStrainPhotos } from '../lib/strain';
 import type { RecordDoc } from '../types';
 
 type Props = {
@@ -30,16 +31,17 @@ function buildStrainOptions(records: RecordDoc[]): StrainOption[] {
   const map = new Map<string, StrainOption>();
   for (const r of records) {
     for (const s of r.strains ?? []) {
-      if (!s.photoUrl) continue;
+      const photoCount = getStrainPhotos(s).length;
+      if (photoCount === 0) continue;
       const cat = categoryOf(s);
       // 同じ id でも品目が変われば別の株として扱う (トマトA とナスA を混ぜない)。
       const key = `${cat}::${s.id}`;
       const existing = map.get(key);
       if (existing) {
-        existing.count += 1;
+        existing.count += photoCount;
         existing.name = s.name ?? existing.name;
       } else {
-        map.set(key, { id: s.id, name: s.name ?? s.id, category: cat, count: 1 });
+        map.set(key, { id: s.id, name: s.name ?? s.id, category: cat, count: photoCount });
       }
     }
   }
@@ -57,17 +59,20 @@ function buildTimeline(
   const items: TimelineItem[] = [];
   for (const r of records) {
     for (const s of r.strains ?? []) {
-      if (s.id !== strainId || !s.photoUrl) continue;
+      if (s.id !== strainId) continue;
       if (categoryOf(s) !== category) continue;
-      items.push({
-        date: r.date,
-        photoUrl: s.photoUrl,
-        height: s.height,
-        leafCount: s.leafCount,
-        memo: s.memo ?? '',
-        name: s.name ?? s.id,
-        category: categoryOf(s),
-      });
+      // 1 株 / 日に複数枚の写真がある場合は、それぞれを別タイルとしてタイムラインに並べる。
+      for (const photo of getStrainPhotos(s)) {
+        items.push({
+          date: r.date,
+          photoUrl: photo.url,
+          height: s.height,
+          leafCount: s.leafCount,
+          memo: s.memo ?? '',
+          name: s.name ?? s.id,
+          category: categoryOf(s),
+        });
+      }
     }
   }
   // 観察日記としては「最近の様子」が最初に見える方が自然。

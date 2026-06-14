@@ -461,15 +461,26 @@ export const cleanupOrphanPhotos = onSchedule(
   }
 );
 
-/** records / history ドキュメントから strains[].photoPath を集める。 */
+/**
+ * records / history ドキュメントから参照中の写真パスを集める。
+ * 新形式 (photos: { path }[]) と旧形式 (photoPath: string) の両方に対応。
+ */
 function collectPhotoPaths(
   data: FirebaseFirestore.DocumentData | undefined,
   out: Set<string>
 ): void {
-  const strains = data?.strains as { photoPath?: string }[] | undefined;
+  const strains = data?.strains as
+    | { photoPath?: string; photos?: { path?: string }[] }[]
+    | undefined;
   if (!Array.isArray(strains)) return;
   for (const s of strains) {
-    if (s?.photoPath && typeof s.photoPath === 'string') out.add(s.photoPath);
+    if (Array.isArray(s?.photos)) {
+      for (const p of s.photos) {
+        if (p?.path && typeof p.path === 'string') out.add(p.path);
+      }
+    } else if (s?.photoPath && typeof s.photoPath === 'string') {
+      out.add(s.photoPath);
+    }
   }
 }
 

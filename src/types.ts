@@ -5,6 +5,21 @@ import type { FieldValue, Timestamp } from 'firebase/firestore';
  * <input type="number"> から来る空入力をそのまま許容するため
  * height / leafCount は空文字も型に含める。saveRecord 時に number | null に正規化される。
  */
+/**
+ * 1 株 1 日に紐づく写真 1 枚への参照。
+ * path は Storage オブジェクトのフルパス (オーファン削除や差し替え時に必要)。
+ * url は getDownloadURL の結果 (画面表示用、token 付きで認証不要)。
+ */
+export type PhotoRef = {
+  path: string;
+  url: string;
+};
+
+/**
+ * フォームで保持する株データ。
+ * <input type="number"> から来る空入力をそのまま許容するため
+ * height / leafCount は空文字も型に含める。saveRecord 時に number | null に正規化される。
+ */
 export type StrainFormValue = {
   id: string;
   /** 品目 (トマト / ナス など)。空文字は「未分類」として扱う。 */
@@ -13,8 +28,8 @@ export type StrainFormValue = {
   height: number | '';
   leafCount: number | '';
   memo: string;
-  photoPath: string | null;
-  photoUrl: string | null;
+  /** 新形式: 1 株 1 日に複数枚。空配列なら写真なし。 */
+  photos: PhotoRef[];
 };
 
 /** Firestore に保存される株データ。 */
@@ -26,8 +41,12 @@ export type Strain = {
   height: number | null;
   leafCount: number | null;
   memo: string;
-  photoPath: string | null;
-  photoUrl: string | null;
+  /** 新形式: 1 株 1 日に複数枚の写真。空配列なら写真なし。 */
+  photos?: PhotoRef[];
+  /** @deprecated 旧形式 (1 株 1 枚時代)。新規書き込みでは使わない。読み取り時のみ参照する。 */
+  photoPath?: string | null;
+  /** @deprecated 旧形式。 */
+  photoUrl?: string | null;
 };
 
 export type Averages = {
