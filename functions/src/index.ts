@@ -554,3 +554,103 @@ export const getStorageUsage = onCall<UsageData>(async (req) => {
   );
   return { totalBytes, photoCount, computedAt: Date.now() };
 });
+
+interface ClassAveragesData {
+  classId: string;
+}
+
+/**
+ * クラス全員のレコードを Admin SDK で読んで、日付別の平均 (草丈・葉枚数) を返す。
+ *
+ * プライバシー:
+ *   - 戻り値は集計値のみ。個別生徒の値や名前は含まない。
+ *   - 「あの子は平均より上 / 下」の特定にも繋がらないよう、N=1 (ある日のクラス全体で
+ *     計測値が 1 件しかない) の場合も平均として返す。これは「クラス全体での個人の位置」
+ *     を学習目的で示す機能であり、計測者匿名化は集計値だけ返す時点で達成されているため。
+ *
+ * 権限:
+ *   - 同クラスのメンバー (生徒の名簿 or 教員) のみ呼べる。
+ *   - 別クラス所属者には permission-denied を返す。
+ *
+ * 集計範囲: 全カテゴリ・全株 (Phase 2 で品目別に拡張する余地あり)。
+ *
+ * パフォーマンス: 30 人 × 60 日 = 1800 doc read 程度。1〜3 秒で完了。
+ * クライアント側で 5 分キャッシュするので毎回呼ばれることはない。
+ */
+export const getClassAverages = onCall<ClassAveragesData>(async (req) => {
+  if (!req.auth) {
+    throw new HttpsError('unauthenticated', 'ログインが必要です。');
+  }
+  const callerUid = req.auth.uid;
+  const { classId } = req.data ?? ({} as ClassAveragesData);
+  if (!classId) {
+    throw new HttpsError('invalid-argument', 'classId は必須です。');
+  }
+
+  const db = getFirestore();
+  const classRef = db.collection('classes').doc(classId);
+
+  // 呼出元がクラスのメンバー (生徒 or 教員) か検証
+  const [studentSnap, teacherSnap] = await Promise.all([
+    classRef.collection('students').doc(callerUid).get(),
+    classRef.collection('teachers').doc(callerUid).get(),
+  ]);
+  if (!studentSnap.exists && !teacherSnap.exists) {
+    throw new HttpsError(
+      'permission-denied',
+      'このクラスのメンバーのみ平均値を取得できます。'
+    );
+  }
+
+  // 全生徒の全 records を走査して、日付別に値を蓄積
+  const studentsSnap = await classRef.collection('students').get();
+  const accumulator = new Map<string, { heights: number[]; leafCounts: number[] }>();
+
+  for (const studentDoc of studentsSnap.docs) {
+    const recordsSnap = await studentDoc.ref.collection('records').get();
+    for (const recordDoc of recordsSnap.docs) {
+      const data = recordDoc.data();
+      const date = typeof data.date === 'string' ? data.date : recordDoc.id;
+      const strains =
+        (data.strains as { height?: number | null; leafCount?: number | null }[]) ?? [];
+
+      let bucket = accumulator.get(date);
+      if (!bucket) {
+        bucket = { heights: [], leafCounts: [] };
+        accumulator.set(date, bucket);
+      }
+
+      for (const s of strains) {
+        if (typeof s.height === 'number' && Number.isFinite(s.height)) {
+          bucket.heights.push(s.height);
+        }
+        if (typeof s.leafCount === 'number' && Number.isFinite(s.leafCount)) {
+          bucket.leafCounts.push(s.leafCount);
+        }
+      }
+    }
+  }
+
+  // 日付昇順、平均は小数 2 桁
+  const averages = [...accumulator.entries()]
+    .map(([date, { heights, leafCounts }]) => ({
+      date,
+      height:
+        heights.length > 0
+          ? Number((heights.reduce((a, b) => a + b, 0) / heights.length).toFixed(2))
+          : null,
+      leafCount:
+        leafCounts.length > 0
+          ? Number(
+              (leafCounts.reduce((a, b) => a + b, 0) / leafCounts.length).toFixed(2)
+            )
+          : null,
+      sampleSize: Math.max(heights.length, leafCounts.length),
+    }))
+    .sort((a, b) => a.date.localeCompare(b.date));
+
+  logger.info(
+    `Class averages computed: classId=${classId} days=${averages.length} by=${callerUid}`
+  );
+  return { averages, computedAt: Date.now() };
+});

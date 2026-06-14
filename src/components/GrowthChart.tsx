@@ -1,4 +1,4 @@
-import { useMemo, useState } from 'react';
+import { useEffect, useMemo, useState } from 'react';
 import {
   CartesianGrid,
   Legend,
@@ -15,7 +15,14 @@ import {
   dailyAveragesFor,
   uniqueCategories,
 } from '../lib/categories';
+import {
+  fetchClassAverages,
+  translateClassAveragesError,
+  type ClassAveragePoint,
+} from '../lib/classAverages';
 import type { EventDoc, RecordDoc } from '../types';
+
+const CLASS_AVG_TOGGLE_KEY = 'plant-grow.classAvgOverlay';
 
 type GrowthChartProps = {
   records: RecordDoc[];
@@ -31,6 +38,53 @@ const ALL_KEY = '__ALL__';
 
 export default function GrowthChart({ records, events = [] }: GrowthChartProps) {
   const [selected, setSelected] = useState<string>(ALL_KEY);
+
+  // クラス平均オーバーレイ。設定は localStorage に永続化して画面遷移しても消えないように。
+  const [showClassAvg, setShowClassAvg] = useState<boolean>(() => {
+    if (typeof localStorage === 'undefined') return false;
+    try {
+      return localStorage.getItem(CLASS_AVG_TOGGLE_KEY) === 'true';
+    } catch {
+      return false;
+    }
+  });
+  const [classAvg, setClassAvg] = useState<ClassAveragePoint[] | null>(null);
+  const [classAvgStatus, setClassAvgStatus] = useState<
+    'idle' | 'loading' | 'error'
+  >('idle');
+  const [classAvgError, setClassAvgError] = useState<string | null>(null);
+
+  // トグル変更で永続化
+  useEffect(() => {
+    try {
+      localStorage.setItem(CLASS_AVG_TOGGLE_KEY, String(showClassAvg));
+    } catch {
+      /* private mode 等: 永続化に失敗してもオンメモリの state は維持 */
+    }
+  }, [showClassAvg]);
+
+  // ON 切替時にクラス平均を取得 (5分キャッシュあり)
+  useEffect(() => {
+    if (!showClassAvg) return;
+    if (classAvg) return; // 既に持っている
+    let cancelled = false;
+    setClassAvgStatus('loading');
+    setClassAvgError(null);
+    fetchClassAverages()
+      .then((points) => {
+        if (cancelled) return;
+        setClassAvg(points);
+        setClassAvgStatus('idle');
+      })
+      .catch((e) => {
+        if (cancelled) return;
+        setClassAvgError(translateClassAveragesError(e));
+        setClassAvgStatus('error');
+      });
+    return () => {
+      cancelled = true;
+    };
+  }, [showClassAvg, classAvg]);
 
   const categories = useMemo(() => uniqueCategories(records), [records]);
 
@@ -53,10 +107,35 @@ export default function GrowthChart({ records, events = [] }: GrowthChartProps) 
 
   const data = useMemo(() => {
     const filterCategory = selected === ALL_KEY ? null : selected;
-    return dailyAveragesFor(records, filterCategory).filter(
+    const own = dailyAveragesFor(records, filterCategory).filter(
       (d) => d.height != null || d.leafCount != null
     );
-  }, [records, selected]);
+    if (!showClassAvg || !classAvg) {
+      return own.map((d) => ({
+        date: d.date,
+        height: d.height,
+        leafCount: d.leafCount,
+        classHeight: null as number | null,
+        classLeafCount: null as number | null,
+      }));
+    }
+    // クラス平均は日付キーで突き合わせ。自分のチャートに無い日でもクラス側はあり得る (他生徒のみ記録)
+    // → 自分の日付 ∪ クラスの日付を union で並べる
+    const ownByDate = new Map(own.map((d) => [d.date, d]));
+    const classByDate = new Map(classAvg.map((c) => [c.date, c]));
+    const allDates = [...new Set([...ownByDate.keys(), ...classByDate.keys()])].sort();
+    return allDates.map((date) => {
+      const o = ownByDate.get(date);
+      const c = classByDate.get(date);
+      return {
+        date,
+        height: o?.height ?? null,
+        leafCount: o?.leafCount ?? null,
+        classHeight: c?.height ?? null,
+        classLeafCount: c?.leafCount ?? null,
+      };
+    });
+  }, [records, selected, showClassAvg, classAvg]);
 
   if (records.length === 0) {
     return (
@@ -70,9 +149,26 @@ export default function GrowthChart({ records, events = [] }: GrowthChartProps) 
     <div className="card">
       <header className="flex flex-wrap items-baseline justify-between gap-2">
         <h2 className="text-xl font-bold text-leaf-700">平均値の推移</h2>
-        {showCategoryTabs && (
-          <span className="text-xs text-slate-500">品目で絞り込み</span>
-        )}
+        <label className="flex items-center gap-1 text-xs text-slate-600 print:hidden">
+          <input
+            type="checkbox"
+            checked={showClassAvg}
+            onChange={(e) => setShowClassAvg(e.target.checked)}
+            className="h-4 w-4"
+          />
+          クラス平均を重ねる
+          {classAvgStatus === 'loading' && (
+            <span className="ml-1 text-slate-400">(計算中…)</span>
+          )}
+          {classAvgStatus === 'error' && (
+            <span
+              className="ml-1 text-red-600"
+              title={classAvgError ?? undefined}
+            >
+              (取得失敗)
+            </span>
+          )}
+        </label>
       </header>
 
       {showCategoryTabs && (
@@ -163,6 +259,35 @@ export default function GrowthChart({ records, events = [] }: GrowthChartProps) 
                 dot={{ r: 5 }}
                 connectNulls
               />
+              {/* クラス平均オーバーレイ: 点線 + 半透明色で「補助情報」として識別しやすく。 */}
+              {showClassAvg && classAvg && (
+                <>
+                  <Line
+                    yAxisId="left"
+                    type="monotone"
+                    dataKey="classHeight"
+                    name="クラス平均 草丈 (cm)"
+                    stroke="#3b8f3f"
+                    strokeOpacity={0.55}
+                    strokeWidth={2}
+                    strokeDasharray="6 4"
+                    dot={false}
+                    connectNulls
+                  />
+                  <Line
+                    yAxisId="right"
+                    type="monotone"
+                    dataKey="classLeafCount"
+                    name="クラス平均 葉枚数 (枚)"
+                    stroke="#8d6e63"
+                    strokeOpacity={0.55}
+                    strokeWidth={2}
+                    strokeDasharray="6 4"
+                    dot={false}
+                    connectNulls
+                  />
+                </>
+              )}
             </LineChart>
           </ResponsiveContainer>
         )}
