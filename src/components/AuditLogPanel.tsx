@@ -84,7 +84,7 @@ function describe(entry: UnifiedEntry): React.ReactNode {
           <span className="font-semibold text-slate-700">{target}</span>
           {' の保護者リンクを発行'}
           {entry.shareTokenPrefix && (
-            <span className="ml-1 text-xs text-slate-400">
+            <span className="ml-1 text-xs text-slate-500">
               (token {entry.shareTokenPrefix}…)
             </span>
           )}
@@ -103,7 +103,7 @@ function describe(entry: UnifiedEntry): React.ReactNode {
           ) : null}
           {'保護者リンクを取り消し'}
           {entry.shareTokenPrefix && (
-            <span className="ml-1 text-xs text-slate-400">
+            <span className="ml-1 text-xs text-slate-500">
               (token {entry.shareTokenPrefix}…)
             </span>
           )}
@@ -221,7 +221,7 @@ export default function AuditLogPanel() {
               <div className="flex flex-wrap items-baseline justify-between gap-2">
                 <span>{describe(entry)}</span>
                 {entry.atCaption && (
-                  <span className="text-xs text-slate-400">{entry.atCaption}</span>
+                  <span className="text-xs text-slate-500">{entry.atCaption}</span>
                 )}
               </div>
             </li>

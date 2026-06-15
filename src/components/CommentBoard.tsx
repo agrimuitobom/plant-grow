@@ -224,7 +224,7 @@ export default function CommentBoard({
             disabled={busy || dateOptions.length === 0}
           />
           <div className="flex items-center justify-between">
-            <span className="text-xs text-slate-400">{draftText.length}/1000</span>
+            <span className="text-xs text-slate-500">{draftText.length}/1000</span>
             <button
               type="submit"
               disabled={busy || !draftText.trim() || !draftDate}
@@ -237,7 +237,11 @@ export default function CommentBoard({
       )}
 
       <div className="mt-4 flex flex-col gap-3">
-        {status === 'loading' && <p className="text-slate-500">読み込み中…</p>}
+        {status === 'loading' && (
+          <p role="status" className="text-slate-500">
+            読み込み中…
+          </p>
+        )}
         {status === 'error' && <p className="text-red-600">読み込みエラー: {error}</p>}
         {status === 'ready' && comments.length === 0 && (
           <p className="text-slate-500">

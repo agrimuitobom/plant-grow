@@ -68,9 +68,15 @@ export default function HistoryPanel({ uid, dateId, refreshKey, onRestore }: Pro
 
       {open && (
         <div className="mt-3 flex flex-col gap-2">
-          {status === 'loading' && <p className="text-sm text-slate-500">読み込み中…</p>}
+          {status === 'loading' && (
+            <p role="status" className="text-sm text-slate-500">
+              読み込み中…
+            </p>
+          )}
           {status === 'error' && (
-            <p className="text-sm text-red-600">取得できませんでした: {error}</p>
+            <p role="alert" className="text-sm text-red-600">
+              取得できませんでした: {error}
+            </p>
           )}
           {status === 'ready' && items.length === 0 && (
             <p className="text-sm text-slate-500">
@@ -89,7 +95,7 @@ export default function HistoryPanel({ uid, dateId, refreshKey, onRestore }: Pro
                     草丈 {it.averages?.height ?? '—'} cm / 葉 {it.averages?.leafCount ?? '—'} 枚 / 株 {it.strains?.length ?? 0}
                   </span>
                   {it.updatedByName && (
-                    <span className="ml-2 text-xs text-slate-400">by {it.updatedByName}</span>
+                    <span className="ml-2 text-xs text-slate-500">by {it.updatedByName}</span>
                   )}
                 </div>
                 <button
@@ -103,7 +109,7 @@ export default function HistoryPanel({ uid, dateId, refreshKey, onRestore }: Pro
               </div>
             ))}
           {items.length > 0 && (
-            <p className="text-xs text-slate-400">
+            <p className="text-xs text-slate-500">
               ※ 「復元」を押すとフォームに値が読み込まれます。実際に上書きされるのは「保存する」を押した時です。
             </p>
           )}

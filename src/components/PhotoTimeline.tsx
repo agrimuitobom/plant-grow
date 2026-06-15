@@ -176,7 +176,7 @@ export default function PhotoTimeline({ records }: Props) {
                     )}
                     {o.name}
                     <span
-                      className={`ml-2 text-xs ${active ? 'text-leaf-50' : 'text-slate-400'}`}
+                      className={`ml-2 text-xs ${active ? 'text-leaf-50' : 'text-slate-500'}`}
                     >
                       {o.count}
                     </span>

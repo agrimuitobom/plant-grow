@@ -242,7 +242,7 @@ export default function SignInScreen() {
           )}
         </form>
 
-        <p className="mt-4 text-center text-xs text-slate-400">
+        <p className="mt-4 text-center text-xs text-slate-500">
           {mode === 'signin'
             ? 'まだ ID を作っていない場合は「初回登録」を選択。'
             : 'すでに ID を持っている場合は「ログイン」を選択。'}
@@ -250,7 +250,7 @@ export default function SignInScreen() {
 
         {/* クラス切替: 通常は隠してあるが、新クラスに移るときや別クラスにログインするときに使う。
             現在の classId は同時に下に小さく表示しておく。 */}
-        <div className="mt-3 text-center text-xs text-slate-400">
+        <div className="mt-3 text-center text-xs text-slate-500">
           <span>クラス: {classIdInput}</span>
           <button
             type="button"
@@ -270,7 +270,7 @@ export default function SignInScreen() {
               placeholder="例: class-demo, 2027-grade3a"
               autoCapitalize="off"
             />
-            <p className="mt-1 text-xs text-slate-400">
+            <p className="mt-1 text-xs text-slate-500">
               ※ 同じ ID + パスワードでも、クラスが違うと別アカウントになります。先生に確認してください。
             </p>
           </div>

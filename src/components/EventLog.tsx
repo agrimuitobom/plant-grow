@@ -138,7 +138,7 @@ export default function EventLog({ studentUid, dateId, events, poster }: Props) 
                 >
                   <span className="text-sm text-slate-700">
                     {TYPE_LABEL[ev.type]}
-                    <span className="ml-2 text-xs text-slate-400">{formatTime(ev)}</span>
+                    <span className="ml-2 text-xs text-slate-500">{formatTime(ev)}</span>
                   </span>
                   <button
                     type="button"

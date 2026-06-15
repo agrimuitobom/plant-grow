@@ -248,7 +248,9 @@ export default function TeacherDashboard({ currentUid, currentDisplayName }: Pro
         )}
 
         {studentStatus === 'loading' && (
-          <div className="card text-slate-500">記録を読み込み中…</div>
+          <div role="status" className="card text-slate-500">
+            記録を読み込み中…
+          </div>
         )}
         {studentStatus === 'error' && (
           <div className="card text-red-600">読み込みエラー: {studentError}</div>
@@ -281,7 +283,11 @@ export default function TeacherDashboard({ currentUid, currentDisplayName }: Pro
   }
 
   if (rosterStatus === 'loading') {
-    return <div className="card text-slate-500">クラス名簿を読み込み中…</div>;
+    return (
+      <div role="status" className="card text-slate-500">
+        クラス名簿を読み込み中…
+      </div>
+    );
   }
   if (rosterStatus === 'error') {
     return (
@@ -351,7 +357,7 @@ export default function TeacherDashboard({ currentUid, currentDisplayName }: Pro
                     {s.email && (
                       <span className="mt-0.5 truncate text-xs text-slate-500">{s.email}</span>
                     )}
-                    <span className="mt-2 text-xs text-slate-400">
+                    <span className="mt-2 text-xs text-slate-500">
                       最終記録: {formatLastActive(s)}
                     </span>
                   </button>
@@ -372,7 +378,9 @@ export default function TeacherDashboard({ currentUid, currentDisplayName }: Pro
             </header>
 
             {teachersStatus === 'loading' && (
-              <p className="mt-4 text-slate-500">読み込み中…</p>
+              <p role="status" className="mt-4 text-slate-500">
+                読み込み中…
+              </p>
             )}
             {teachersStatus === 'error' && (
               <p className="mt-4 text-red-600">取得できませんでした: {teachersError}</p>

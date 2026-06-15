@@ -131,7 +131,7 @@ export default function RecordsList({ records, selectedDate, onSelectDate }: Pro
                       )}
                       {r.auditCaption && (
                         <div
-                          className="text-xs text-slate-400"
+                          className="text-xs text-slate-500"
                           title="最終更新者と時刻"
                         >
                           {r.auditCaption}
