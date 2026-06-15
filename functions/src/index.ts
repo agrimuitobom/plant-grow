@@ -12,6 +12,17 @@ initializeApp();
 setGlobalOptions({ region: 'asia-northeast1', maxInstances: 10 });
 
 /**
+ * onCall 関数で許可する CORS オリジン。
+ *
+ * Firebase Functions v2 の onCall は本来 Firebase 系ドメインから自動許可される
+ * はずだが、firebase-functions ^6 + Cloud Run v2 の組合せで preflight に
+ * Access-Control-Allow-Origin が付かないケースが報告されており、本番で実害が
+ * 出ているため明示する。auth と App Check は関数本体側で検証しているので、
+ * cors: true (= 全許可) でもセキュリティは劣化しない。
+ */
+const CALLABLE_OPTS = { cors: true } as const;
+
+/**
  * 統合監査ログを書き込むヘルパ。
  * 全 Cloud Function はここを通って同じスキーマで auditLog コレクションに追記する。
  * クライアントには Rules で書き込み禁止しているので、ここを通ったものだけが
@@ -72,7 +83,7 @@ interface ResetData {
  *
  * 成功時は監査ログ (classes/{classId}/passwordResets) に 1 エントリ書き込む。
  */
-export const resetStudentPassword = onCall<ResetData>(async (req) => {
+export const resetStudentPassword = onCall<ResetData>(CALLABLE_OPTS, async (req) => {
   if (!req.auth) {
     throw new HttpsError('unauthenticated', 'ログインが必要です。');
   }
@@ -168,7 +179,7 @@ interface ClaimData {
  * 既に教員が登録されているクラスに対して呼ばれた場合は failed-precondition を返す。
  * 想定誤操作 (例: 別端末で先に他の人が登録) を明示するメッセージで伝える。
  */
-export const claimFirstTeacher = onCall<ClaimData>(async (req) => {
+export const claimFirstTeacher = onCall<ClaimData>(CALLABLE_OPTS, async (req) => {
   if (!req.auth) {
     throw new HttpsError('unauthenticated', 'ログインが必要です。');
   }
@@ -295,7 +306,7 @@ function generateShareToken(length = 32): string {
  * 同じ studentUid に対する既存の有効なリンクは破棄され (1 生徒 1 リンクの制約)、
  * 新しい token に置き換えられる。これにより家庭で配ったリンクを後から差し替えやすい。
  */
-export const createParentShare = onCall<CreateShareData>(async (req) => {
+export const createParentShare = onCall<CreateShareData>(CALLABLE_OPTS, async (req) => {
   if (!req.auth) {
     throw new HttpsError('unauthenticated', 'ログインが必要です。');
   }
@@ -383,7 +394,7 @@ interface RevokeShareData {
   token: string;
 }
 
-export const revokeParentShare = onCall<RevokeShareData>(async (req) => {
+export const revokeParentShare = onCall<RevokeShareData>(CALLABLE_OPTS, async (req) => {
   if (!req.auth) {
     throw new HttpsError('unauthenticated', 'ログインが必要です。');
   }
@@ -605,7 +616,7 @@ interface UsageData {
  * Storage 容量はリストAPI でメタデータと一緒に返るので、個別 getMetadata は不要。
  * クラス規模 (数千枚オーダー) なら 1〜3 秒で完了する。
  */
-export const getStorageUsage = onCall<UsageData>(async (req) => {
+export const getStorageUsage = onCall<UsageData>(CALLABLE_OPTS, async (req) => {
   if (!req.auth) {
     throw new HttpsError('unauthenticated', 'ログインが必要です。');
   }
@@ -683,7 +694,7 @@ interface ClassAveragesData {
  * パフォーマンス: 30 人 × 60 日 = 1800 doc read 程度。1〜3 秒で完了。
  * クライアント側で 5 分キャッシュするので毎回呼ばれることはない。
  */
-export const getClassAverages = onCall<ClassAveragesData>(async (req) => {
+export const getClassAverages = onCall<ClassAveragesData>(CALLABLE_OPTS, async (req) => {
   if (!req.auth) {
     throw new HttpsError('unauthenticated', 'ログインが必要です。');
   }
@@ -778,7 +789,7 @@ interface TeacherRoleData {
  * 既に教員の場合は冪等に成功扱い (alreadyTeacher: true)。
  * 監査ログ (auditLog/{auto}) に type=teacher-promoted エントリを追記する。
  */
-export const promoteTeacher = onCall<TeacherRoleData>(async (req) => {
+export const promoteTeacher = onCall<TeacherRoleData>(CALLABLE_OPTS, async (req) => {
   if (!req.auth) {
     throw new HttpsError('unauthenticated', 'ログインが必要です。');
   }
@@ -855,7 +866,7 @@ export const promoteTeacher = onCall<TeacherRoleData>(async (req) => {
  * 既に教員でない場合は冪等に成功扱い。
  * 監査ログ (auditLog/{auto}) に type=teacher-demoted エントリを追記する。
  */
-export const demoteTeacher = onCall<TeacherRoleData>(async (req) => {
+export const demoteTeacher = onCall<TeacherRoleData>(CALLABLE_OPTS, async (req) => {
   if (!req.auth) {
     throw new HttpsError('unauthenticated', 'ログインが必要です。');
   }
