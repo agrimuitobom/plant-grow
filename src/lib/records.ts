@@ -114,8 +114,21 @@ export async function fetchRecordHistory(
   return snap.docs.map((d) => ({ id: d.id, ...(d.data() as RecordDoc) }) as HistorySnapshot);
 }
 
-const photoPathsOf = (strains: Strain[] | undefined): string[] =>
-  (strains ?? []).map((s) => s?.photoPath).filter((p): p is string => Boolean(p));
+// 新旧両形式から photoPath を抽出。差し替え時のオーファン検出と
+// 編集履歴のスナップショット時の参照集計に使う。
+const photoPathsOf = (strains: Strain[] | undefined): string[] => {
+  const out: string[] = [];
+  for (const s of strains ?? []) {
+    if (Array.isArray(s?.photos)) {
+      for (const p of s.photos) {
+        if (p?.path) out.push(p.path);
+      }
+    } else if (s?.photoPath) {
+      out.push(s.photoPath);
+    }
+  }
+  return out;
+};
 
 export type SaveRecordArgs = {
   user: Pick<User, 'uid' | 'displayName' | 'email'>;
@@ -143,8 +156,9 @@ export async function saveRecord({
     leafCount: Number.isFinite(Number(s.leafCount)) ? Number(s.leafCount) : null,
     // 観察メモ。長文は Firestore の 1MB ドキュメント制限を圧迫するので 1000 字に丸める。
     memo: typeof s.memo === 'string' ? s.memo.slice(0, 1000) : '',
-    photoPath: s.photoPath ?? null,
-    photoUrl: s.photoUrl ?? null,
+    // 新形式のみ書き込む。1 株 1 日に複数枚対応。
+    // 旧形式の photoPath / photoUrl は新規書き込みでは含めない (互換は読み取り側で吸収)。
+    photos: Array.isArray(s.photos) ? s.photos : [],
   }));
   const averages = calcAverages(cleanStrains);
   const ref = recordDoc(user.uid, dateId);

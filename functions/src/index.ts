@@ -11,6 +11,46 @@ initializeApp();
 // 学校アプリは Tokyo リージョン固定。コールドスタートが東京から見て最短になる。
 setGlobalOptions({ region: 'asia-northeast1', maxInstances: 10 });
 
+/**
+ * 統合監査ログを書き込むヘルパ。
+ * 全 Cloud Function はここを通って同じスキーマで auditLog コレクションに追記する。
+ * クライアントには Rules で書き込み禁止しているので、ここを通ったものだけが
+ * 「改ざんできない監査エビデンス」になる。
+ */
+type AuditEntry = {
+  type:
+    | 'password-reset'
+    | 'share-created'
+    | 'share-revoked'
+    | 'first-teacher-claimed'
+    | 'teacher-promoted'
+    | 'teacher-demoted';
+  by: string;
+  byName: string | null;
+  targetUid?: string;
+  targetName?: string | null;
+  shareTokenPrefix?: string;
+};
+async function writeAuditLog(
+  db: FirebaseFirestore.Firestore,
+  classId: string,
+  entry: AuditEntry
+): Promise<void> {
+  try {
+    await db
+      .collection('classes')
+      .doc(classId)
+      .collection('auditLog')
+      .add({
+        ...entry,
+        at: FieldValue.serverTimestamp(),
+      });
+  } catch (e) {
+    // 監査ログ書き込み失敗は致命的にしない (主処理は完了している)。Cloud Logging には残す。
+    logger.warn(`auditLog write failed: ${(e as Error).message}`);
+  }
+}
+
 interface ResetData {
   classId: string;
   studentUid: string;
@@ -86,13 +126,23 @@ export const resetStudentPassword = onCall<ResetData>(async (req) => {
   // Admin SDK でパスワード差し替え。失敗時は Firebase の internal error がそのまま流れる。
   await getAuth().updateUser(studentUid, { password: newPassword });
 
-  // 監査ログ。生のパスワードは絶対に保存しない (resetBy / 日時のみ)。
+  // 後方互換: 既存の passwordResets コレクションにも残す (UI 側で旧データもまだ参照する間)。
+  // 生のパスワードは絶対に保存しない (resetBy / 日時のみ)。
   await classRef.collection('passwordResets').add({
     studentUid,
     studentDisplayName: studentSnap.data()?.displayName ?? null,
     resetBy: callerUid,
     resetByName: teacherSnap.data()?.displayName ?? null,
     at: FieldValue.serverTimestamp(),
+  });
+
+  // 統合監査ログ (今後はこちらが主)
+  await writeAuditLog(db, classId, {
+    type: 'password-reset',
+    by: callerUid,
+    byName: teacherSnap.data()?.displayName ?? null,
+    targetUid: studentUid,
+    targetName: studentSnap.data()?.displayName ?? null,
   });
 
   return { ok: true };
@@ -155,6 +205,11 @@ export const claimFirstTeacher = onCall<ClaimData>(async (req) => {
   });
 
   logger.info(`First teacher claimed: classId=${classId}, uid=${callerUid}`);
+  await writeAuditLog(db, classId, {
+    type: 'first-teacher-claimed',
+    by: callerUid,
+    byName: displayName,
+  });
   return { ok: true };
 });
 
@@ -311,6 +366,16 @@ export const createParentShare = onCall<CreateShareData>(async (req) => {
   logger.info(
     `Share issued: token=${token.slice(0, 6)}... studentUid=${studentUid} hours=${validHours}`
   );
+  await writeAuditLog(db, classId, {
+    type: 'share-created',
+    by: callerUid,
+    byName: teacherSnap.exists
+      ? (teacherSnap.data()?.displayName as string | undefined) ?? null
+      : null,
+    targetUid: studentUid,
+    targetName: studentDisplayName,
+    shareTokenPrefix: token.slice(0, 6),
+  });
   return { token, expiresAt: expiresAt.toISOString() };
 });
 
@@ -363,6 +428,47 @@ export const revokeParentShare = onCall<RevokeShareData>(async (req) => {
 
   await ref.delete();
   logger.info(`Share revoked: token=${token.slice(0, 6)}... by=${callerUid}`);
+  if (data.classId) {
+    // 削除されたシェアの作成元情報を取りに行く (caller の displayName は teachers コレクションから)
+    let byName: string | null = null;
+    try {
+      const teacherSnap = await db
+        .collection('classes')
+        .doc(data.classId)
+        .collection('teachers')
+        .doc(callerUid)
+        .get();
+      byName = teacherSnap.exists
+        ? (teacherSnap.data()?.displayName as string | undefined) ?? null
+        : null;
+    } catch {
+      /* best effort */
+    }
+    let targetName: string | null = null;
+    if (data.studentUid) {
+      try {
+        const studentSnap = await db
+          .collection('classes')
+          .doc(data.classId)
+          .collection('students')
+          .doc(data.studentUid)
+          .get();
+        targetName = studentSnap.exists
+          ? (studentSnap.data()?.displayName as string | undefined) ?? null
+          : null;
+      } catch {
+        /* best effort */
+      }
+    }
+    await writeAuditLog(db, data.classId, {
+      type: 'share-revoked',
+      by: callerUid,
+      byName,
+      targetUid: data.studentUid,
+      targetName,
+      shareTokenPrefix: token.slice(0, 6),
+    });
+  }
   return { ok: true };
 });
 
@@ -461,14 +567,344 @@ export const cleanupOrphanPhotos = onSchedule(
   }
 );
 
-/** records / history ドキュメントから strains[].photoPath を集める。 */
+/**
+ * records / history ドキュメントから参照中の写真パスを集める。
+ * 新形式 (photos: { path }[]) と旧形式 (photoPath: string) の両方に対応。
+ */
 function collectPhotoPaths(
   data: FirebaseFirestore.DocumentData | undefined,
   out: Set<string>
 ): void {
-  const strains = data?.strains as { photoPath?: string }[] | undefined;
+  const strains = data?.strains as
+    | { photoPath?: string; photos?: { path?: string }[] }[]
+    | undefined;
   if (!Array.isArray(strains)) return;
   for (const s of strains) {
-    if (s?.photoPath && typeof s.photoPath === 'string') out.add(s.photoPath);
+    if (Array.isArray(s?.photos)) {
+      for (const p of s.photos) {
+        if (p?.path && typeof p.path === 'string') out.add(p.path);
+      }
+    } else if (s?.photoPath && typeof s.photoPath === 'string') {
+      out.add(s.photoPath);
+    }
   }
 }
+
+interface UsageData {
+  classId: string;
+}
+
+/**
+ * 指定クラスの写真容量を集計して返す。教員のみ呼び出し可能。
+ *
+ * 用途:
+ *   - 教員ダッシュボードに「クラス全体: 350MB ({N}枚)」を表示
+ *   - Blaze プランの月次請求が膨らむ前に「もうすぐ無料枠超えそう」と気付ける
+ *
+ * 集計範囲: `classes/{classId}/students/* /photos/...` の全ファイル。
+ * Storage 容量はリストAPI でメタデータと一緒に返るので、個別 getMetadata は不要。
+ * クラス規模 (数千枚オーダー) なら 1〜3 秒で完了する。
+ */
+export const getStorageUsage = onCall<UsageData>(async (req) => {
+  if (!req.auth) {
+    throw new HttpsError('unauthenticated', 'ログインが必要です。');
+  }
+  const callerUid = req.auth.uid;
+  const { classId } = req.data ?? ({} as UsageData);
+  if (!classId) {
+    throw new HttpsError('invalid-argument', 'classId は必須です。');
+  }
+
+  // 教員のみ
+  const db = getFirestore();
+  const teacherSnap = await db
+    .collection('classes')
+    .doc(classId)
+    .collection('teachers')
+    .doc(callerUid)
+    .get();
+  if (!teacherSnap.exists) {
+    throw new HttpsError(
+      'permission-denied',
+      'このクラスの教員のみ集計を取得できます。'
+    );
+  }
+
+  const bucket = getStorage().bucket();
+  const [files] = await bucket.getFiles({ prefix: `classes/${classId}/` });
+
+  let totalBytes = 0;
+  let photoCount = 0;
+  for (const file of files) {
+    if (!file.name.includes('/photos/')) continue;
+    // bucket.getFiles の戻り値 (File オブジェクト) は metadata.size を保持しているはず。
+    // 念のためフォールバックで getMetadata する。
+    const sizeFromMeta = file.metadata?.size;
+    let size = 0;
+    if (typeof sizeFromMeta === 'string') size = Number(sizeFromMeta);
+    else if (typeof sizeFromMeta === 'number') size = sizeFromMeta;
+    else {
+      try {
+        const [m] = await file.getMetadata();
+        size = Number(m.size) || 0;
+      } catch {
+        size = 0;
+      }
+    }
+    totalBytes += size;
+    photoCount++;
+  }
+
+  logger.info(
+    `Storage usage queried: classId=${classId} totalBytes=${totalBytes} photoCount=${photoCount} by=${callerUid}`
+  );
+  return { totalBytes, photoCount, computedAt: Date.now() };
+});
+
+interface ClassAveragesData {
+  classId: string;
+}
+
+/**
+ * クラス全員のレコードを Admin SDK で読んで、日付別の平均 (草丈・葉枚数) を返す。
+ *
+ * プライバシー:
+ *   - 戻り値は集計値のみ。個別生徒の値や名前は含まない。
+ *   - 「あの子は平均より上 / 下」の特定にも繋がらないよう、N=1 (ある日のクラス全体で
+ *     計測値が 1 件しかない) の場合も平均として返す。これは「クラス全体での個人の位置」
+ *     を学習目的で示す機能であり、計測者匿名化は集計値だけ返す時点で達成されているため。
+ *
+ * 権限:
+ *   - 同クラスのメンバー (生徒の名簿 or 教員) のみ呼べる。
+ *   - 別クラス所属者には permission-denied を返す。
+ *
+ * 集計範囲: 全カテゴリ・全株 (Phase 2 で品目別に拡張する余地あり)。
+ *
+ * パフォーマンス: 30 人 × 60 日 = 1800 doc read 程度。1〜3 秒で完了。
+ * クライアント側で 5 分キャッシュするので毎回呼ばれることはない。
+ */
+export const getClassAverages = onCall<ClassAveragesData>(async (req) => {
+  if (!req.auth) {
+    throw new HttpsError('unauthenticated', 'ログインが必要です。');
+  }
+  const callerUid = req.auth.uid;
+  const { classId } = req.data ?? ({} as ClassAveragesData);
+  if (!classId) {
+    throw new HttpsError('invalid-argument', 'classId は必須です。');
+  }
+
+  const db = getFirestore();
+  const classRef = db.collection('classes').doc(classId);
+
+  // 呼出元がクラスのメンバー (生徒 or 教員) か検証
+  const [studentSnap, teacherSnap] = await Promise.all([
+    classRef.collection('students').doc(callerUid).get(),
+    classRef.collection('teachers').doc(callerUid).get(),
+  ]);
+  if (!studentSnap.exists && !teacherSnap.exists) {
+    throw new HttpsError(
+      'permission-denied',
+      'このクラスのメンバーのみ平均値を取得できます。'
+    );
+  }
+
+  // 全生徒の全 records を走査して、日付別に値を蓄積
+  const studentsSnap = await classRef.collection('students').get();
+  const accumulator = new Map<string, { heights: number[]; leafCounts: number[] }>();
+
+  for (const studentDoc of studentsSnap.docs) {
+    const recordsSnap = await studentDoc.ref.collection('records').get();
+    for (const recordDoc of recordsSnap.docs) {
+      const data = recordDoc.data();
+      const date = typeof data.date === 'string' ? data.date : recordDoc.id;
+      const strains =
+        (data.strains as { height?: number | null; leafCount?: number | null }[]) ?? [];
+
+      let bucket = accumulator.get(date);
+      if (!bucket) {
+        bucket = { heights: [], leafCounts: [] };
+        accumulator.set(date, bucket);
+      }
+
+      for (const s of strains) {
+        if (typeof s.height === 'number' && Number.isFinite(s.height)) {
+          bucket.heights.push(s.height);
+        }
+        if (typeof s.leafCount === 'number' && Number.isFinite(s.leafCount)) {
+          bucket.leafCounts.push(s.leafCount);
+        }
+      }
+    }
+  }
+
+  // 日付昇順、平均は小数 2 桁
+  const averages = [...accumulator.entries()]
+    .map(([date, { heights, leafCounts }]) => ({
+      date,
+      height:
+        heights.length > 0
+          ? Number((heights.reduce((a, b) => a + b, 0) / heights.length).toFixed(2))
+          : null,
+      leafCount:
+        leafCounts.length > 0
+          ? Number(
+              (leafCounts.reduce((a, b) => a + b, 0) / leafCounts.length).toFixed(2)
+            )
+          : null,
+      sampleSize: Math.max(heights.length, leafCounts.length),
+    }))
+    .sort((a, b) => a.date.localeCompare(b.date));
+
+  logger.info(
+    `Class averages computed: classId=${classId} days=${averages.length} by=${callerUid}`
+  );
+  return { averages, computedAt: Date.now() };
+});
+
+interface TeacherRoleData {
+  classId: string;
+  targetUid: string;
+}
+
+/**
+ * 別ユーザを教員に昇格させる。
+ *
+ * 検証 (Rules で client write を全面禁止しているのでここで全部やる):
+ *   - 呼出元はサインイン済み
+ *   - 呼出元はそのクラスの教員
+ *   - 対象は同クラスの名簿に存在
+ *   - 自分自身を昇格させようとしていない
+ *
+ * 既に教員の場合は冪等に成功扱い (alreadyTeacher: true)。
+ * 監査ログ (auditLog/{auto}) に type=teacher-promoted エントリを追記する。
+ */
+export const promoteTeacher = onCall<TeacherRoleData>(async (req) => {
+  if (!req.auth) {
+    throw new HttpsError('unauthenticated', 'ログインが必要です。');
+  }
+  const callerUid = req.auth.uid;
+  const { classId, targetUid } = req.data ?? ({} as TeacherRoleData);
+
+  if (!classId || !targetUid) {
+    throw new HttpsError('invalid-argument', 'classId / targetUid は必須です。');
+  }
+  if (callerUid === targetUid) {
+    throw new HttpsError(
+      'invalid-argument',
+      '自分自身を昇格させることはできません。'
+    );
+  }
+
+  const db = getFirestore();
+  const classRef = db.collection('classes').doc(classId);
+
+  const [callerSnap, studentSnap, existingTeacherSnap] = await Promise.all([
+    classRef.collection('teachers').doc(callerUid).get(),
+    classRef.collection('students').doc(targetUid).get(),
+    classRef.collection('teachers').doc(targetUid).get(),
+  ]);
+
+  if (!callerSnap.exists) {
+    throw new HttpsError(
+      'permission-denied',
+      'このクラスの教員のみ他者を昇格できます。'
+    );
+  }
+  if (!studentSnap.exists) {
+    throw new HttpsError(
+      'not-found',
+      '対象者がクラスの名簿に見つかりません。'
+    );
+  }
+  if (existingTeacherSnap.exists) {
+    // 既に教員 → 冪等
+    return { ok: true, alreadyTeacher: true };
+  }
+
+  const displayName = (studentSnap.data()?.displayName as string | undefined) ?? 'Teacher';
+  const email = (studentSnap.data()?.email as string | undefined) ?? '';
+
+  await classRef.collection('teachers').doc(targetUid).set({
+    uid: targetUid,
+    displayName,
+    email,
+  });
+
+  await writeAuditLog(db, classId, {
+    type: 'teacher-promoted',
+    by: callerUid,
+    byName: (callerSnap.data()?.displayName as string | undefined) ?? null,
+    targetUid,
+    targetName: displayName,
+  });
+
+  logger.info(
+    `Teacher promoted: classId=${classId} target=${targetUid} by=${callerUid}`
+  );
+  return { ok: true };
+});
+
+/**
+ * 教員ロールを解除する。
+ *
+ * 検証:
+ *   - 呼出元はサインイン済み
+ *   - 呼出元はそのクラスの教員
+ *   - 自分自身ではない (誤操作で教員 0 人になるのを防ぐ)
+ *
+ * 既に教員でない場合は冪等に成功扱い。
+ * 監査ログ (auditLog/{auto}) に type=teacher-demoted エントリを追記する。
+ */
+export const demoteTeacher = onCall<TeacherRoleData>(async (req) => {
+  if (!req.auth) {
+    throw new HttpsError('unauthenticated', 'ログインが必要です。');
+  }
+  const callerUid = req.auth.uid;
+  const { classId, targetUid } = req.data ?? ({} as TeacherRoleData);
+
+  if (!classId || !targetUid) {
+    throw new HttpsError('invalid-argument', 'classId / targetUid は必須です。');
+  }
+  if (callerUid === targetUid) {
+    throw new HttpsError(
+      'invalid-argument',
+      '自分自身を教員から外すことはできません。'
+    );
+  }
+
+  const db = getFirestore();
+  const classRef = db.collection('classes').doc(classId);
+
+  const [callerSnap, targetSnap] = await Promise.all([
+    classRef.collection('teachers').doc(callerUid).get(),
+    classRef.collection('teachers').doc(targetUid).get(),
+  ]);
+
+  if (!callerSnap.exists) {
+    throw new HttpsError(
+      'permission-denied',
+      'このクラスの教員のみ実行できます。'
+    );
+  }
+  if (!targetSnap.exists) {
+    // 既に教員ではない → 冪等
+    return { ok: true, alreadyNotTeacher: true };
+  }
+
+  const targetName = (targetSnap.data()?.displayName as string | undefined) ?? null;
+
+  await classRef.collection('teachers').doc(targetUid).delete();
+
+  await writeAuditLog(db, classId, {
+    type: 'teacher-demoted',
+    by: callerUid,
+    byName: (callerSnap.data()?.displayName as string | undefined) ?? null,
+    targetUid,
+    targetName,
+  });
+
+  logger.info(
+    `Teacher demoted: classId=${classId} target=${targetUid} by=${callerUid}`
+  );
+  return { ok: true };
+});

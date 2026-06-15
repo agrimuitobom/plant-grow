@@ -198,11 +198,15 @@ describe('teacher access', () => {
   });
 });
 
-describe('teacher role management', () => {
-  it('existing teacher can promote another user to teacher', async () => {
+describe('teacher role management (client write fully locked)', () => {
+  // 教員ロール変更 (昇格・解除) は全て Cloud Function 経由で行うため、
+  // クライアントからの teachers/{uid} への直接 write は (read 以外) 全面禁止。
+  // これにより auditLog への追記漏れが構造的に発生しなくなる。
+
+  it('even an existing teacher cannot write teachers from the client', async () => {
     await seedTeacher('teacher-1');
     const fs = asUser('teacher-1');
-    await assertSucceeds(
+    await assertFails(
       setDoc(doc(fs, 'classes', CLASS_ID, 'teachers', 'teacher-2'), {
         uid: 'teacher-2',
         displayName: 'T2',
@@ -220,7 +224,7 @@ describe('teacher role management', () => {
     );
   });
 
-  it('teacher cannot remove themselves', async () => {
+  it('teacher cannot remove themselves from the client', async () => {
     await seedTeacher('teacher-1');
     const fs = asUser('teacher-1');
     await assertFails(
@@ -228,11 +232,11 @@ describe('teacher role management', () => {
     );
   });
 
-  it('teacher can remove a different teacher', async () => {
+  it('even a different teacher cannot delete from the client (must use Function)', async () => {
     await seedTeacher('teacher-1');
     await seedTeacher('teacher-2');
     const fs = asUser('teacher-1');
-    await assertSucceeds(
+    await assertFails(
       deleteDoc(doc(fs, 'classes', CLASS_ID, 'teachers', 'teacher-2'))
     );
   });
@@ -509,6 +513,48 @@ describe('passwordResets audit log', () => {
         studentUid: 'student-a',
         resetBy: 'teacher-1',
         resetByName: 'T先生',
+        at: new Date(),
+      })
+    );
+  });
+});
+
+describe('unified auditLog', () => {
+  const seedAuditEntry = async () => {
+    await env.withSecurityRulesDisabled(async (ctx) => {
+      const fs = ctx.firestore();
+      await setDoc(doc(fs, 'classes', CLASS_ID, 'auditLog', 'a-1'), {
+        type: 'password-reset',
+        by: 'teacher-1',
+        byName: 'T先生',
+        targetUid: 'student-a',
+        targetName: 'A さん',
+        at: new Date(),
+      });
+    });
+  };
+
+  it('teacher can read auditLog entries in their class', async () => {
+    await seedTeacher('teacher-1');
+    await seedAuditEntry();
+    const fs = asUser('teacher-1');
+    await assertSucceeds(getDoc(doc(fs, 'classes', CLASS_ID, 'auditLog', 'a-1')));
+  });
+
+  it('student cannot read auditLog', async () => {
+    await seedAuditEntry();
+    const fs = asUser('student-a');
+    await assertFails(getDoc(doc(fs, 'classes', CLASS_ID, 'auditLog', 'a-1')));
+  });
+
+  it('no client (even teacher) can write to auditLog', async () => {
+    await seedTeacher('teacher-1');
+    const fs = asUser('teacher-1');
+    await assertFails(
+      setDoc(doc(fs, 'classes', CLASS_ID, 'auditLog', 'a-2'), {
+        type: 'password-reset',
+        by: 'teacher-1',
+        byName: 'T先生',
         at: new Date(),
       })
     );

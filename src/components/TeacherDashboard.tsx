@@ -2,8 +2,10 @@ import { useCallback, useEffect, useState } from 'react';
 import CommentBoard from './CommentBoard';
 import ExportCsvButton from './ExportCsvButton';
 import GrowthChart from './GrowthChart';
+import AuditLogPanel from './AuditLogPanel';
 import ParentSharePanel from './ParentSharePanel';
 import PasswordResetPanel from './PasswordResetPanel';
+import StorageUsageCard from './StorageUsageCard';
 import PhotoTimeline from './PhotoTimeline';
 import EventLog from './EventLog';
 import RecordsList from './RecordsList';
@@ -322,11 +324,13 @@ export default function TeacherDashboard({ currentUid, currentDisplayName }: Pro
       </div>
 
       {tab === 'students' && (
-        <section className="card">
-          <header className="flex flex-wrap items-baseline justify-between gap-2">
-            <h2 className="text-xl font-bold text-leaf-700">クラスの生徒</h2>
-            <span className="text-xs text-slate-500">{roster.length} 名</span>
-          </header>
+        <>
+          <StorageUsageCard />
+          <section className="card">
+            <header className="flex flex-wrap items-baseline justify-between gap-2">
+              <h2 className="text-xl font-bold text-leaf-700">クラスの生徒</h2>
+              <span className="text-xs text-slate-500">{roster.length} 名</span>
+            </header>
 
           {roster.length === 0 ? (
             <p className="mt-4 text-slate-500">
@@ -355,7 +359,8 @@ export default function TeacherDashboard({ currentUid, currentDisplayName }: Pro
               ))}
             </ul>
           )}
-        </section>
+          </section>
+        </>
       )}
 
       {tab === 'teachers' && (
@@ -450,6 +455,8 @@ export default function TeacherDashboard({ currentUid, currentDisplayName }: Pro
               </ul>
             )}
           </section>
+
+          <AuditLogPanel />
         </>
       )}
     </div>

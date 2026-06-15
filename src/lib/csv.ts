@@ -1,3 +1,4 @@
+import { getStrainPhotos } from './strain';
 import type { RecordDoc } from '../types';
 
 const HEADERS = ['日付', '品目', '株名', '草丈(cm)', '葉枚数(枚)', '写真URL'] as const;
@@ -16,6 +17,10 @@ export function recordsToCsv(records: RecordDoc[]): string {
   const rows: string[][] = [[...HEADERS]];
   for (const r of records) {
     for (const s of r.strains ?? []) {
+      // 複数枚の URL は改行区切りでひとつのセルに集約する。
+      // RFC 4180 ではフィールドに \n を含む場合ダブルクォートで囲めば OK で、Excel もこの形式を
+      // 「セル内改行」として正しく解釈する。
+      const photoUrls = getStrainPhotos(s).map((p) => p.url).join('\n');
       rows.push([
         r.date,
         s.category ?? '',
@@ -23,7 +28,7 @@ export function recordsToCsv(records: RecordDoc[]): string {
         s.name || s.id,
         s.height == null ? '' : String(s.height),
         s.leafCount == null ? '' : String(s.leafCount),
-        s.photoUrl ?? '',
+        photoUrls,
       ]);
     }
   }

@@ -94,13 +94,14 @@ export default function StrainRow({
     onUploadingChange?.(v);
   };
 
+  // 複数枚対応: アップロード成功した写真を photos 配列に追記する。
+  // 同じ株 / 同じ日に「全体 + 葉のアップ」のような撮り方ができるよう、差替えではなく追加。
   const handlePickPhoto = async (e: React.ChangeEvent<HTMLInputElement>) => {
     const file = e.target.files?.[0];
     e.target.value = '';
     if (!file) return;
     setPhotoError(null);
     setUploading(true);
-    const previousPath = strain.photoPath;
     try {
       const { photoPath, photoUrl } = await uploadStrainPhoto({
         uid,
@@ -108,10 +109,8 @@ export default function StrainRow({
         strainId: strain.id,
         file,
       });
-      onChange({ ...strain, photoPath, photoUrl });
-      if (previousPath && previousPath !== photoPath) {
-        deleteStrainPhoto(previousPath).catch(() => {});
-      }
+      const existing = Array.isArray(strain.photos) ? strain.photos : [];
+      onChange({ ...strain, photos: [...existing, { path: photoPath, url: photoUrl }] });
     } catch (err) {
       setPhotoError(err instanceof Error ? err.message : String(err));
     } finally {
@@ -119,12 +118,11 @@ export default function StrainRow({
     }
   };
 
-  const handleRemovePhoto = () => {
-    const path = strain.photoPath;
-    onChange({ ...strain, photoPath: null, photoUrl: null });
-    if (path) {
-      deleteStrainPhoto(path).catch(() => {});
-    }
+  // 個別削除: 指定した path のものだけ配列から除去 + Storage からも消す。
+  const handleRemovePhoto = (path: string) => {
+    const existing = Array.isArray(strain.photos) ? strain.photos : [];
+    onChange({ ...strain, photos: existing.filter((p) => p.path !== path) });
+    deleteStrainPhoto(path).catch(() => {});
   };
 
   const memoLength = (strain.memo ?? '').length;
@@ -273,32 +271,37 @@ export default function StrainRow({
         </div>
 
         <div className="lg:w-40">
-          <label className="block text-sm font-medium text-slate-500">写真</label>
-          {strain.photoUrl ? (
-            <div className="mt-1 flex items-center gap-2">
-              <a href={strain.photoUrl} target="_blank" rel="noreferrer" className="block">
-                <img
-                  src={strain.photoUrl}
-                  alt={`${strain.name}の写真`}
-                  className="h-16 w-16 rounded-xl object-cover ring-1 ring-slate-200"
-                />
-              </a>
-              <button
-                type="button"
-                onClick={handleRemovePhoto}
-                className="text-sm text-red-600 underline"
-                aria-label={`${strain.name}の写真を削除`}
-              >
-                削除
-              </button>
-            </div>
-          ) : (
+          <label className="block text-sm font-medium text-slate-500">
+            写真 ({(strain.photos ?? []).length} 枚)
+          </label>
+          <div className="mt-1 flex flex-wrap gap-2">
+            {(strain.photos ?? []).map((photo) => (
+              <div key={photo.path} className="relative">
+                <a href={photo.url} target="_blank" rel="noreferrer">
+                  <img
+                    src={photo.url}
+                    alt={`${strain.name}の写真`}
+                    className="h-16 w-16 rounded-xl object-cover ring-1 ring-slate-200"
+                  />
+                </a>
+                <button
+                  type="button"
+                  onClick={() => handleRemovePhoto(photo.path)}
+                  className="absolute -right-1 -top-1 flex h-5 w-5 items-center justify-center rounded-full bg-red-600 text-xs font-bold text-white shadow-sm"
+                  aria-label={`${strain.name}の写真を削除`}
+                  title="この写真を削除"
+                >
+                  ✕
+                </button>
+              </div>
+            ))}
             <label
-              className={`mt-1 inline-flex h-16 w-full cursor-pointer items-center justify-center rounded-xl border-2 border-dashed border-slate-300 px-2 text-sm text-slate-500 hover:border-leaf-500 hover:text-leaf-700 ${
+              className={`inline-flex h-16 w-16 cursor-pointer items-center justify-center rounded-xl border-2 border-dashed border-slate-300 text-xs text-slate-500 hover:border-leaf-500 hover:text-leaf-700 ${
                 photoStatus === 'uploading' ? 'pointer-events-none opacity-60' : ''
               }`}
+              title="写真を追加 (1 株 / 日 に複数枚アップロード可能)"
             >
-              {photoStatus === 'uploading' ? 'アップロード中…' : '＋ 撮影 / 選択'}
+              {photoStatus === 'uploading' ? '…' : '＋追加'}
               {/*
                 capture を指定しないことで、iPad Safari は標準のアクションシート
                 (フォトライブラリ / 撮影 / ファイルを選択) を出す。
@@ -313,7 +316,7 @@ export default function StrainRow({
                 disabled={photoStatus === 'uploading'}
               />
             </label>
-          )}
+          </div>
           {photoError && (
             <p role="alert" className="mt-1 text-xs text-red-600">
               {photoError}

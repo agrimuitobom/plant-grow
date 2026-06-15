@@ -5,6 +5,7 @@ import StrainRow from './StrainRow';
 import { formatAuditCaption } from '../lib/audit';
 import { UNCATEGORIZED, calcAveragesByCategory } from '../lib/categories';
 import { calcAverages, fetchRecord, saveRecord, type SaveRecordResult } from '../lib/records';
+import { getStrainPhotos } from '../lib/strain';
 import type { RecordDoc, Strain, StrainFormValue } from '../types';
 
 const emptyStrain = (index: number): StrainFormValue => ({
@@ -14,8 +15,7 @@ const emptyStrain = (index: number): StrainFormValue => ({
   height: '',
   leafCount: '',
   memo: '',
-  photoPath: null,
-  photoUrl: null,
+  photos: [],
 });
 
 const DEFAULT_STRAINS: StrainFormValue[] = [emptyStrain(0), emptyStrain(1), emptyStrain(2)];
@@ -67,8 +67,7 @@ export default function RecordForm({
               height: s.height ?? '',
               leafCount: s.leafCount ?? '',
               memo: s.memo ?? '',
-              photoPath: s.photoPath ?? null,
-              photoUrl: s.photoUrl ?? null,
+              photos: getStrainPhotos(s),
             }))
           );
           setAuditCaption(
@@ -184,8 +183,7 @@ export default function RecordForm({
         height: s.height ?? '',
         leafCount: s.leafCount ?? '',
         memo: s.memo ?? '',
-        photoPath: s.photoPath ?? null,
-        photoUrl: s.photoUrl ?? null,
+        photos: getStrainPhotos(s),
       }))
     );
   };

@@ -27,7 +27,12 @@ import {
 } from './lib/categories';
 import { markAllCommentsRead } from './lib/comments';
 import { subscribeToEvents } from './lib/events';
-import { getCurrentClassId, signOutUser, subscribeToAuth } from './lib/firebase';
+import {
+  getCurrentClassId,
+  setCurrentClassId,
+  signOutUser,
+  subscribeToAuth,
+} from './lib/firebase';
 import { classHasNoTeachers } from './lib/firstTeacher';
 import { printPortfolio } from './lib/print';
 import {
@@ -36,7 +41,7 @@ import {
   toDateId,
   type SaveRecordResult,
 } from './lib/records';
-import { fetchTeacherProfile } from './lib/teacher';
+import { fetchTeacherProfile, listMyTeacherClasses } from './lib/teacher';
 import type {
   EventDoc,
   RecordDoc,
@@ -62,6 +67,8 @@ export default function App() {
   const [teacherProfile, setTeacherProfile] = useState<TeacherProfile | null>(null);
   // 教員ログイン時はクラス全体ビューを既定表示にする。
   const [viewMode, setViewMode] = useState<ViewMode>('self');
+  // この教員が所属する全クラス (現在のクラスを含む)。未取得 = []、単一 = [classId]、複数 = [...] 。
+  const [teacherClasses, setTeacherClasses] = useState<string[]>([]);
   // クラスに教員が 1 人もいない時のみ true。FirstTeacherBanner の表示制御に使う。
   const [needsFirstTeacher, setNeedsFirstTeacher] = useState(false);
   const [registeredCategories, setRegisteredCategories] = useState<string[]>([]);
@@ -96,6 +103,17 @@ export default function App() {
       if (p) {
         setViewMode('teacher');
         setNeedsFirstTeacher(false);
+        // 複数クラス所属の教員にクラス切替 UI を出すため、教員所属クラス一覧を CG クエリで取得。
+        // 失敗は致命的でないので握りつぶす (UI は単一クラス想定で動く)。
+        listMyTeacherClasses(currentUid)
+          .then((list) => {
+            // 現在のクラスが含まれていなければ追加 (Rules や名簿のずれで起こりうる)
+            const cur = getCurrentClassId();
+            const set = new Set(list);
+            set.add(cur);
+            setTeacherClasses([...set].sort());
+          })
+          .catch(() => setTeacherClasses([getCurrentClassId()]));
         return;
       }
       setViewMode('self');
@@ -107,10 +125,13 @@ export default function App() {
       } catch {
         setNeedsFirstTeacher(false);
       }
+      // 生徒モードでは複数クラス所属の概念は無いので空にしておく
+      setTeacherClasses([]);
     } catch {
       setTeacherProfile(null);
       setViewMode('self');
       setNeedsFirstTeacher(false);
+      setTeacherClasses([]);
     }
   }, []);
 
@@ -249,9 +270,30 @@ export default function App() {
               : user.displayName
                 ? `${user.displayName} さんの観察記録`
                 : 'タブレットで観察記録'}
-            <span className="ml-2 rounded-full bg-slate-100 px-2 py-0.5 text-xs text-slate-600">
-              クラス: {getCurrentClassId()}
-            </span>
+            {isTeacher && teacherClasses.length > 1 ? (
+              <select
+                value={getCurrentClassId()}
+                onChange={(e) => {
+                  // クラス切替: localStorage に書き込んでからリロードで全 subscription を作り直す。
+                  // 中途半端な状態を避けるための最も確実な方法。
+                  setCurrentClassId(e.target.value);
+                  window.location.reload();
+                }}
+                className="ml-2 rounded-full bg-slate-100 px-2 py-1 text-xs text-slate-700"
+                aria-label="担当クラスを切り替え"
+                title="担当している別のクラスに切り替えます"
+              >
+                {teacherClasses.map((c) => (
+                  <option key={c} value={c}>
+                    クラス: {c}
+                  </option>
+                ))}
+              </select>
+            ) : (
+              <span className="ml-2 rounded-full bg-slate-100 px-2 py-0.5 text-xs text-slate-600">
+                クラス: {getCurrentClassId()}
+              </span>
+            )}
           </p>
         </div>
         <div className="flex items-center gap-3">

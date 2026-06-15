@@ -1,15 +1,22 @@
 import {
   collection,
-  deleteDoc,
+  collectionGroup,
   doc,
   getDoc,
   getDocs,
+  limit,
   onSnapshot,
-  setDoc,
+  orderBy,
+  query,
+  where,
+  type Timestamp,
   type Unsubscribe,
 } from 'firebase/firestore';
-import { db, getCurrentClassId } from './firebase';
+import { getFunctions, httpsCallable } from 'firebase/functions';
+import { app, db, getCurrentClassId } from './firebase';
 import type { RosterEntry, TeacherProfile } from '../types';
+
+const functions = getFunctions(app, 'asia-northeast1');
 
 /**
  * 自分が教員かどうかを判定する。
@@ -72,18 +79,120 @@ export async function listTeachers(): Promise<TeacherProfile[]> {
     .sort((a, b) => a.displayName.localeCompare(b.displayName, 'ja'));
 }
 
-/** ユーザを教員に昇格させる。Rules で「既存教員のみ実行可」が強制される。 */
+/**
+ * ユーザを教員に昇格させる。
+ * Rules で teachers/{uid} への client write は全面禁止されているので、
+ * 必ず Cloud Function (promoteTeacher) を経由する。これにより auditLog にも
+ * 自動的に teacher-promoted エントリが残る (Function 側で保証)。
+ */
 export async function promoteToTeacher(profile: TeacherProfile): Promise<void> {
-  const ref = doc(db, 'classes', getCurrentClassId(), 'teachers', profile.uid);
-  await setDoc(ref, {
-    uid: profile.uid,
-    displayName: profile.displayName,
-    email: profile.email ?? '',
+  const callable = httpsCallable<
+    { classId: string; targetUid: string },
+    { ok: boolean; alreadyTeacher?: boolean }
+  >(functions, 'promoteTeacher');
+  await callable({
+    classId: getCurrentClassId(),
+    targetUid: profile.uid,
   });
 }
 
-/** 教員ロールを解除する。Rules 側で自分自身は外せない。 */
+/**
+ * 教員ロールを解除する。
+ * 同様に Cloud Function (demoteTeacher) を経由 → auditLog に teacher-demoted を残す。
+ * 自分自身の解除は Function 側で invalid-argument を返す。
+ */
 export async function demoteTeacher(uid: string): Promise<void> {
-  const ref = doc(db, 'classes', getCurrentClassId(), 'teachers', uid);
-  await deleteDoc(ref);
+  const callable = httpsCallable<
+    { classId: string; targetUid: string },
+    { ok: boolean; alreadyNotTeacher?: boolean }
+  >(functions, 'demoteTeacher');
+  await callable({
+    classId: getCurrentClassId(),
+    targetUid: uid,
+  });
+}
+
+/**
+ * パスワードリセットの監査ログ 1 エントリ。Cloud Function (resetStudentPassword) が
+ * 成功した時に Admin SDK で書き込んでいる。Rules で「同クラスの教員」が read 可。
+ */
+export type PasswordResetLog = {
+  id: string;
+  studentUid: string;
+  studentDisplayName: string | null;
+  resetBy: string;
+  resetByName: string | null;
+  at?: Timestamp;
+};
+
+/**
+ * 直近のパスワードリセットを新しい順で返す。教員管理タブの操作ログ表示に使う。
+ * 既定 50 件まで取得 (運用上、必要十分な遡及期間で UI を重くしない)。
+ */
+export async function listRecentPasswordResets(
+  max = 50
+): Promise<PasswordResetLog[]> {
+  const ref = collection(db, 'classes', getCurrentClassId(), 'passwordResets');
+  const q = query(ref, orderBy('at', 'desc'), limit(max));
+  const snap = await getDocs(q);
+  return snap.docs.map((d) => ({
+    id: d.id,
+    ...(d.data() as Omit<PasswordResetLog, 'id'>),
+  }));
+}
+
+/**
+ * 統合監査ログの 1 エントリ。Cloud Function が writeAuditLog() で追記する。
+ * 旧 passwordResets と並行で運用する (UI 側でマージして表示)。
+ */
+export type AuditLogEntry = {
+  id: string;
+  type:
+    | 'password-reset'
+    | 'share-created'
+    | 'share-revoked'
+    | 'first-teacher-claimed'
+    | 'teacher-promoted'
+    | 'teacher-demoted';
+  by: string;
+  byName: string | null;
+  targetUid?: string;
+  targetName?: string | null;
+  shareTokenPrefix?: string;
+  at?: Timestamp;
+};
+
+export async function listRecentAuditLogs(max = 100): Promise<AuditLogEntry[]> {
+  const ref = collection(db, 'classes', getCurrentClassId(), 'auditLog');
+  const q = query(ref, orderBy('at', 'desc'), limit(max));
+  const snap = await getDocs(q);
+  return snap.docs.map((d) => ({
+    id: d.id,
+    ...(d.data() as Omit<AuditLogEntry, 'id'>),
+  }));
+}
+
+/**
+ * 指定 uid が教員として所属する全クラスを Collection Group クエリで横断検索する。
+ *
+ * - パス: `classes/&#42;/teachers/{teacherId}` を CG で串刺し、`uid == 自分` で絞り込む。
+ * - Rules: teachers は `allow read: if isSignedIn()` なので CG クエリも通る。
+ * - 戻り値は classId の配列 (重複排除済み、辞書順)。
+ * - 0 件 = どのクラスでも教員ではない、1 件 = 単一クラスの教員、2 件以上 = 複数クラス担任。
+ *
+ * Firestore は単一フィールド (uid asc) の場合 CG クエリでも自動インデックスが効くので
+ * 手動の合成インデックス定義は通常不要。万一「インデックスが必要」エラーが出たら
+ * Firebase Console の "Indexes" タブからクリック作成、もしくは firestore.indexes.json に
+ * collectionGroup: 'teachers', fields: [uid asc] を追加。
+ */
+export async function listMyTeacherClasses(uid: string): Promise<string[]> {
+  const q = query(collectionGroup(db, 'teachers'), where('uid', '==', uid));
+  const snap = await getDocs(q);
+  const classIds = new Set<string>();
+  for (const d of snap.docs) {
+    // teachers/{teacherId} の parent は teachers コレクション、その parent が classes/{classId}
+    const classRef = d.ref.parent.parent;
+    if (classRef) classIds.add(classRef.id);
+  }
+  return [...classIds].sort();
 }
