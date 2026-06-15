@@ -1,5 +1,6 @@
 import {
   collection,
+  collectionGroup,
   deleteDoc,
   doc,
   getDoc,
@@ -9,6 +10,7 @@ import {
   orderBy,
   query,
   setDoc,
+  where,
   type Timestamp,
   type Unsubscribe,
 } from 'firebase/firestore';
@@ -119,4 +121,29 @@ export async function listRecentPasswordResets(
     id: d.id,
     ...(d.data() as Omit<PasswordResetLog, 'id'>),
   }));
+}
+
+/**
+ * 指定 uid が教員として所属する全クラスを Collection Group クエリで横断検索する。
+ *
+ * - パス: `classes/&#42;/teachers/{teacherId}` を CG で串刺し、`uid == 自分` で絞り込む。
+ * - Rules: teachers は `allow read: if isSignedIn()` なので CG クエリも通る。
+ * - 戻り値は classId の配列 (重複排除済み、辞書順)。
+ * - 0 件 = どのクラスでも教員ではない、1 件 = 単一クラスの教員、2 件以上 = 複数クラス担任。
+ *
+ * Firestore は単一フィールド (uid asc) の場合 CG クエリでも自動インデックスが効くので
+ * 手動の合成インデックス定義は通常不要。万一「インデックスが必要」エラーが出たら
+ * Firebase Console の "Indexes" タブからクリック作成、もしくは firestore.indexes.json に
+ * collectionGroup: 'teachers', fields: [uid asc] を追加。
+ */
+export async function listMyTeacherClasses(uid: string): Promise<string[]> {
+  const q = query(collectionGroup(db, 'teachers'), where('uid', '==', uid));
+  const snap = await getDocs(q);
+  const classIds = new Set<string>();
+  for (const d of snap.docs) {
+    // teachers/{teacherId} の parent は teachers コレクション、その parent が classes/{classId}
+    const classRef = d.ref.parent.parent;
+    if (classRef) classIds.add(classRef.id);
+  }
+  return [...classIds].sort();
 }
