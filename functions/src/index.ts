@@ -22,7 +22,9 @@ type AuditEntry = {
     | 'password-reset'
     | 'share-created'
     | 'share-revoked'
-    | 'first-teacher-claimed';
+    | 'first-teacher-claimed'
+    | 'teacher-promoted'
+    | 'teacher-demoted';
   by: string;
   byName: string | null;
   targetUid?: string;
@@ -757,4 +759,152 @@ export const getClassAverages = onCall<ClassAveragesData>(async (req) => {
     `Class averages computed: classId=${classId} days=${averages.length} by=${callerUid}`
   );
   return { averages, computedAt: Date.now() };
+});
+
+interface TeacherRoleData {
+  classId: string;
+  targetUid: string;
+}
+
+/**
+ * 別ユーザを教員に昇格させる。
+ *
+ * 検証 (Rules で client write を全面禁止しているのでここで全部やる):
+ *   - 呼出元はサインイン済み
+ *   - 呼出元はそのクラスの教員
+ *   - 対象は同クラスの名簿に存在
+ *   - 自分自身を昇格させようとしていない
+ *
+ * 既に教員の場合は冪等に成功扱い (alreadyTeacher: true)。
+ * 監査ログ (auditLog/{auto}) に type=teacher-promoted エントリを追記する。
+ */
+export const promoteTeacher = onCall<TeacherRoleData>(async (req) => {
+  if (!req.auth) {
+    throw new HttpsError('unauthenticated', 'ログインが必要です。');
+  }
+  const callerUid = req.auth.uid;
+  const { classId, targetUid } = req.data ?? ({} as TeacherRoleData);
+
+  if (!classId || !targetUid) {
+    throw new HttpsError('invalid-argument', 'classId / targetUid は必須です。');
+  }
+  if (callerUid === targetUid) {
+    throw new HttpsError(
+      'invalid-argument',
+      '自分自身を昇格させることはできません。'
+    );
+  }
+
+  const db = getFirestore();
+  const classRef = db.collection('classes').doc(classId);
+
+  const [callerSnap, studentSnap, existingTeacherSnap] = await Promise.all([
+    classRef.collection('teachers').doc(callerUid).get(),
+    classRef.collection('students').doc(targetUid).get(),
+    classRef.collection('teachers').doc(targetUid).get(),
+  ]);
+
+  if (!callerSnap.exists) {
+    throw new HttpsError(
+      'permission-denied',
+      'このクラスの教員のみ他者を昇格できます。'
+    );
+  }
+  if (!studentSnap.exists) {
+    throw new HttpsError(
+      'not-found',
+      '対象者がクラスの名簿に見つかりません。'
+    );
+  }
+  if (existingTeacherSnap.exists) {
+    // 既に教員 → 冪等
+    return { ok: true, alreadyTeacher: true };
+  }
+
+  const displayName = (studentSnap.data()?.displayName as string | undefined) ?? 'Teacher';
+  const email = (studentSnap.data()?.email as string | undefined) ?? '';
+
+  await classRef.collection('teachers').doc(targetUid).set({
+    uid: targetUid,
+    displayName,
+    email,
+  });
+
+  await writeAuditLog(db, classId, {
+    type: 'teacher-promoted',
+    by: callerUid,
+    byName: (callerSnap.data()?.displayName as string | undefined) ?? null,
+    targetUid,
+    targetName: displayName,
+  });
+
+  logger.info(
+    `Teacher promoted: classId=${classId} target=${targetUid} by=${callerUid}`
+  );
+  return { ok: true };
+});
+
+/**
+ * 教員ロールを解除する。
+ *
+ * 検証:
+ *   - 呼出元はサインイン済み
+ *   - 呼出元はそのクラスの教員
+ *   - 自分自身ではない (誤操作で教員 0 人になるのを防ぐ)
+ *
+ * 既に教員でない場合は冪等に成功扱い。
+ * 監査ログ (auditLog/{auto}) に type=teacher-demoted エントリを追記する。
+ */
+export const demoteTeacher = onCall<TeacherRoleData>(async (req) => {
+  if (!req.auth) {
+    throw new HttpsError('unauthenticated', 'ログインが必要です。');
+  }
+  const callerUid = req.auth.uid;
+  const { classId, targetUid } = req.data ?? ({} as TeacherRoleData);
+
+  if (!classId || !targetUid) {
+    throw new HttpsError('invalid-argument', 'classId / targetUid は必須です。');
+  }
+  if (callerUid === targetUid) {
+    throw new HttpsError(
+      'invalid-argument',
+      '自分自身を教員から外すことはできません。'
+    );
+  }
+
+  const db = getFirestore();
+  const classRef = db.collection('classes').doc(classId);
+
+  const [callerSnap, targetSnap] = await Promise.all([
+    classRef.collection('teachers').doc(callerUid).get(),
+    classRef.collection('teachers').doc(targetUid).get(),
+  ]);
+
+  if (!callerSnap.exists) {
+    throw new HttpsError(
+      'permission-denied',
+      'このクラスの教員のみ実行できます。'
+    );
+  }
+  if (!targetSnap.exists) {
+    // 既に教員ではない → 冪等
+    return { ok: true, alreadyNotTeacher: true };
+  }
+
+  const targetName = (targetSnap.data()?.displayName as string | undefined) ?? null;
+
+  await classRef.collection('teachers').doc(targetUid).delete();
+
+  await writeAuditLog(db, classId, {
+    type: 'teacher-demoted',
+    by: callerUid,
+    byName: (callerSnap.data()?.displayName as string | undefined) ?? null,
+    targetUid,
+    targetName,
+  });
+
+  logger.info(
+    `Teacher demoted: classId=${classId} target=${targetUid} by=${callerUid}`
+  );
+  return { ok: true };
 });

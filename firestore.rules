@@ -43,17 +43,15 @@ service cloud.firestore {
     }
 
     // 教員ドキュメント。
-    // - 最初の 1 人は Firebase Console から手動で seed する必要がある (chicken-and-egg)。
-    // - 一度教員ができれば、その教員が他のユーザを教員に昇格・解除できる。
-    // - 自分自身を解除する操作は禁止 (誤操作で全教員不在を防ぐ)。
-    // - 任意のサインイン済みユーザに read を許可しているのは、自分が教員か検出するため。
+    // - 任意のサインイン済みユーザに read を許可 (自分が教員か検出する目的)。
+    // - 書き込みは全て Cloud Function 経由 (Admin SDK で Rules バイパス) に統一:
+    //     * 最初の 1 人 : claimFirstTeacher Function
+    //     * 昇格         : promoteTeacher Function
+    //     * 解除         : demoteTeacher Function (自分自身は対象外)
+    //   こうすることで全ての教員ロール変更が auditLog に必ず残る。
     match /classes/{classId}/teachers/{teacherId} {
       allow read: if isSignedIn();
-      allow create: if isTeacher(classId)
-        && request.resource.data.uid == teacherId
-        && request.resource.data.keys().hasAll(['uid', 'displayName']);
-      allow delete: if isTeacher(classId) && request.auth.uid != teacherId;
-      allow update: if false;
+      allow write: if false;
     }
 
     // パスワードリセット監査ログ。Cloud Function (Admin SDK) のみが書き込み、

@@ -1,7 +1,6 @@
 import {
   collection,
   collectionGroup,
-  deleteDoc,
   doc,
   getDoc,
   getDocs,
@@ -9,13 +8,15 @@ import {
   onSnapshot,
   orderBy,
   query,
-  setDoc,
   where,
   type Timestamp,
   type Unsubscribe,
 } from 'firebase/firestore';
-import { db, getCurrentClassId } from './firebase';
+import { getFunctions, httpsCallable } from 'firebase/functions';
+import { app, db, getCurrentClassId } from './firebase';
 import type { RosterEntry, TeacherProfile } from '../types';
+
+const functions = getFunctions(app, 'asia-northeast1');
 
 /**
  * 自分が教員かどうかを判定する。
@@ -78,20 +79,37 @@ export async function listTeachers(): Promise<TeacherProfile[]> {
     .sort((a, b) => a.displayName.localeCompare(b.displayName, 'ja'));
 }
 
-/** ユーザを教員に昇格させる。Rules で「既存教員のみ実行可」が強制される。 */
+/**
+ * ユーザを教員に昇格させる。
+ * Rules で teachers/{uid} への client write は全面禁止されているので、
+ * 必ず Cloud Function (promoteTeacher) を経由する。これにより auditLog にも
+ * 自動的に teacher-promoted エントリが残る (Function 側で保証)。
+ */
 export async function promoteToTeacher(profile: TeacherProfile): Promise<void> {
-  const ref = doc(db, 'classes', getCurrentClassId(), 'teachers', profile.uid);
-  await setDoc(ref, {
-    uid: profile.uid,
-    displayName: profile.displayName,
-    email: profile.email ?? '',
+  const callable = httpsCallable<
+    { classId: string; targetUid: string },
+    { ok: boolean; alreadyTeacher?: boolean }
+  >(functions, 'promoteTeacher');
+  await callable({
+    classId: getCurrentClassId(),
+    targetUid: profile.uid,
   });
 }
 
-/** 教員ロールを解除する。Rules 側で自分自身は外せない。 */
+/**
+ * 教員ロールを解除する。
+ * 同様に Cloud Function (demoteTeacher) を経由 → auditLog に teacher-demoted を残す。
+ * 自分自身の解除は Function 側で invalid-argument を返す。
+ */
 export async function demoteTeacher(uid: string): Promise<void> {
-  const ref = doc(db, 'classes', getCurrentClassId(), 'teachers', uid);
-  await deleteDoc(ref);
+  const callable = httpsCallable<
+    { classId: string; targetUid: string },
+    { ok: boolean; alreadyNotTeacher?: boolean }
+  >(functions, 'demoteTeacher');
+  await callable({
+    classId: getCurrentClassId(),
+    targetUid: uid,
+  });
 }
 
 /**
@@ -133,7 +151,9 @@ export type AuditLogEntry = {
     | 'password-reset'
     | 'share-created'
     | 'share-revoked'
-    | 'first-teacher-claimed';
+    | 'first-teacher-claimed'
+    | 'teacher-promoted'
+    | 'teacher-demoted';
   by: string;
   byName: string | null;
   targetUid?: string;

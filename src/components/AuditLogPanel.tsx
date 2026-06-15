@@ -16,7 +16,9 @@ type UnifiedEntry = {
     | 'password-reset'
     | 'share-created'
     | 'share-revoked'
-    | 'first-teacher-claimed';
+    | 'first-teacher-claimed'
+    | 'teacher-promoted'
+    | 'teacher-demoted';
   byName: string | null;
   by: string;
   targetName?: string | null;
@@ -114,6 +116,24 @@ function describe(entry: UnifiedEntry): React.ReactNode {
           {' が最初の教員として登録'}
         </>
       );
+    case 'teacher-promoted':
+      return (
+        <>
+          <span className="font-semibold text-leaf-700">{actor}</span>
+          {' が '}
+          <span className="font-semibold text-slate-700">{target}</span>
+          {' を教員に昇格'}
+        </>
+      );
+    case 'teacher-demoted':
+      return (
+        <>
+          <span className="font-semibold text-leaf-700">{actor}</span>
+          {' が '}
+          <span className="font-semibold text-slate-700">{target}</span>
+          {' の教員ロールを解除'}
+        </>
+      );
   }
 }
 
@@ -182,7 +202,8 @@ export default function AuditLogPanel() {
 
       <p className="mt-2 text-xs text-slate-500">
         Cloud Function 経由でしか書き込めないため、改ざんできない監査エビデンスとして残ります。
-        パスワード再発行 / 保護者共有リンクの発行・取消 / 初代教員登録の履歴を含みます。
+        パスワード再発行 / 保護者共有リンクの発行・取消 / 初代教員登録 /
+        教員昇格・解除の履歴を含みます。
       </p>
 
       {status === 'error' && (
