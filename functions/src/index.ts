@@ -11,6 +11,44 @@ initializeApp();
 // 学校アプリは Tokyo リージョン固定。コールドスタートが東京から見て最短になる。
 setGlobalOptions({ region: 'asia-northeast1', maxInstances: 10 });
 
+/**
+ * 統合監査ログを書き込むヘルパ。
+ * 全 Cloud Function はここを通って同じスキーマで auditLog コレクションに追記する。
+ * クライアントには Rules で書き込み禁止しているので、ここを通ったものだけが
+ * 「改ざんできない監査エビデンス」になる。
+ */
+type AuditEntry = {
+  type:
+    | 'password-reset'
+    | 'share-created'
+    | 'share-revoked'
+    | 'first-teacher-claimed';
+  by: string;
+  byName: string | null;
+  targetUid?: string;
+  targetName?: string | null;
+  shareTokenPrefix?: string;
+};
+async function writeAuditLog(
+  db: FirebaseFirestore.Firestore,
+  classId: string,
+  entry: AuditEntry
+): Promise<void> {
+  try {
+    await db
+      .collection('classes')
+      .doc(classId)
+      .collection('auditLog')
+      .add({
+        ...entry,
+        at: FieldValue.serverTimestamp(),
+      });
+  } catch (e) {
+    // 監査ログ書き込み失敗は致命的にしない (主処理は完了している)。Cloud Logging には残す。
+    logger.warn(`auditLog write failed: ${(e as Error).message}`);
+  }
+}
+
 interface ResetData {
   classId: string;
   studentUid: string;
@@ -86,13 +124,23 @@ export const resetStudentPassword = onCall<ResetData>(async (req) => {
   // Admin SDK でパスワード差し替え。失敗時は Firebase の internal error がそのまま流れる。
   await getAuth().updateUser(studentUid, { password: newPassword });
 
-  // 監査ログ。生のパスワードは絶対に保存しない (resetBy / 日時のみ)。
+  // 後方互換: 既存の passwordResets コレクションにも残す (UI 側で旧データもまだ参照する間)。
+  // 生のパスワードは絶対に保存しない (resetBy / 日時のみ)。
   await classRef.collection('passwordResets').add({
     studentUid,
     studentDisplayName: studentSnap.data()?.displayName ?? null,
     resetBy: callerUid,
     resetByName: teacherSnap.data()?.displayName ?? null,
     at: FieldValue.serverTimestamp(),
+  });
+
+  // 統合監査ログ (今後はこちらが主)
+  await writeAuditLog(db, classId, {
+    type: 'password-reset',
+    by: callerUid,
+    byName: teacherSnap.data()?.displayName ?? null,
+    targetUid: studentUid,
+    targetName: studentSnap.data()?.displayName ?? null,
   });
 
   return { ok: true };
@@ -155,6 +203,11 @@ export const claimFirstTeacher = onCall<ClaimData>(async (req) => {
   });
 
   logger.info(`First teacher claimed: classId=${classId}, uid=${callerUid}`);
+  await writeAuditLog(db, classId, {
+    type: 'first-teacher-claimed',
+    by: callerUid,
+    byName: displayName,
+  });
   return { ok: true };
 });
 
@@ -311,6 +364,16 @@ export const createParentShare = onCall<CreateShareData>(async (req) => {
   logger.info(
     `Share issued: token=${token.slice(0, 6)}... studentUid=${studentUid} hours=${validHours}`
   );
+  await writeAuditLog(db, classId, {
+    type: 'share-created',
+    by: callerUid,
+    byName: teacherSnap.exists
+      ? (teacherSnap.data()?.displayName as string | undefined) ?? null
+      : null,
+    targetUid: studentUid,
+    targetName: studentDisplayName,
+    shareTokenPrefix: token.slice(0, 6),
+  });
   return { token, expiresAt: expiresAt.toISOString() };
 });
 
@@ -363,6 +426,47 @@ export const revokeParentShare = onCall<RevokeShareData>(async (req) => {
 
   await ref.delete();
   logger.info(`Share revoked: token=${token.slice(0, 6)}... by=${callerUid}`);
+  if (data.classId) {
+    // 削除されたシェアの作成元情報を取りに行く (caller の displayName は teachers コレクションから)
+    let byName: string | null = null;
+    try {
+      const teacherSnap = await db
+        .collection('classes')
+        .doc(data.classId)
+        .collection('teachers')
+        .doc(callerUid)
+        .get();
+      byName = teacherSnap.exists
+        ? (teacherSnap.data()?.displayName as string | undefined) ?? null
+        : null;
+    } catch {
+      /* best effort */
+    }
+    let targetName: string | null = null;
+    if (data.studentUid) {
+      try {
+        const studentSnap = await db
+          .collection('classes')
+          .doc(data.classId)
+          .collection('students')
+          .doc(data.studentUid)
+          .get();
+        targetName = studentSnap.exists
+          ? (studentSnap.data()?.displayName as string | undefined) ?? null
+          : null;
+      } catch {
+        /* best effort */
+      }
+    }
+    await writeAuditLog(db, data.classId, {
+      type: 'share-revoked',
+      by: callerUid,
+      byName,
+      targetUid: data.studentUid,
+      targetName,
+      shareTokenPrefix: token.slice(0, 6),
+    });
+  }
   return { ok: true };
 });
 

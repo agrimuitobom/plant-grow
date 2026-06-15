@@ -63,6 +63,14 @@ service cloud.firestore {
       allow write: if false; // Function 経由のみ (Admin SDK で Rules バイパス)
     }
 
+    // 統合監査ログ。Cloud Function 経由の特権操作 (パスワードリセット / 共有リンク発行・取消 /
+    // 初代教員登録など) が成功した時に Admin SDK で 1 エントリ追記する。
+    // クライアント書き込みは完全禁止 → 改ざんできない監査エビデンスとして機能する。
+    match /classes/{classId}/auditLog/{logId} {
+      allow read: if isTeacher(classId);
+      allow write: if false;
+    }
+
     // クラス名簿。生徒は自分のエントリだけ upsert でき、
     // 同じクラスの教員は全員分を一覧できる。
     match /classes/{classId}/students/{userId} {

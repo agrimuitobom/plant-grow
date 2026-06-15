@@ -124,6 +124,35 @@ export async function listRecentPasswordResets(
 }
 
 /**
+ * 統合監査ログの 1 エントリ。Cloud Function が writeAuditLog() で追記する。
+ * 旧 passwordResets と並行で運用する (UI 側でマージして表示)。
+ */
+export type AuditLogEntry = {
+  id: string;
+  type:
+    | 'password-reset'
+    | 'share-created'
+    | 'share-revoked'
+    | 'first-teacher-claimed';
+  by: string;
+  byName: string | null;
+  targetUid?: string;
+  targetName?: string | null;
+  shareTokenPrefix?: string;
+  at?: Timestamp;
+};
+
+export async function listRecentAuditLogs(max = 100): Promise<AuditLogEntry[]> {
+  const ref = collection(db, 'classes', getCurrentClassId(), 'auditLog');
+  const q = query(ref, orderBy('at', 'desc'), limit(max));
+  const snap = await getDocs(q);
+  return snap.docs.map((d) => ({
+    id: d.id,
+    ...(d.data() as Omit<AuditLogEntry, 'id'>),
+  }));
+}
+
+/**
  * 指定 uid が教員として所属する全クラスを Collection Group クエリで横断検索する。
  *
  * - パス: `classes/&#42;/teachers/{teacherId}` を CG で串刺し、`uid == 自分` で絞り込む。

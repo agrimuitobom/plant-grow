@@ -515,6 +515,48 @@ describe('passwordResets audit log', () => {
   });
 });
 
+describe('unified auditLog', () => {
+  const seedAuditEntry = async () => {
+    await env.withSecurityRulesDisabled(async (ctx) => {
+      const fs = ctx.firestore();
+      await setDoc(doc(fs, 'classes', CLASS_ID, 'auditLog', 'a-1'), {
+        type: 'password-reset',
+        by: 'teacher-1',
+        byName: 'T先生',
+        targetUid: 'student-a',
+        targetName: 'A さん',
+        at: new Date(),
+      });
+    });
+  };
+
+  it('teacher can read auditLog entries in their class', async () => {
+    await seedTeacher('teacher-1');
+    await seedAuditEntry();
+    const fs = asUser('teacher-1');
+    await assertSucceeds(getDoc(doc(fs, 'classes', CLASS_ID, 'auditLog', 'a-1')));
+  });
+
+  it('student cannot read auditLog', async () => {
+    await seedAuditEntry();
+    const fs = asUser('student-a');
+    await assertFails(getDoc(doc(fs, 'classes', CLASS_ID, 'auditLog', 'a-1')));
+  });
+
+  it('no client (even teacher) can write to auditLog', async () => {
+    await seedTeacher('teacher-1');
+    const fs = asUser('teacher-1');
+    await assertFails(
+      setDoc(doc(fs, 'classes', CLASS_ID, 'auditLog', 'a-2'), {
+        type: 'password-reset',
+        by: 'teacher-1',
+        byName: 'T先生',
+        at: new Date(),
+      })
+    );
+  });
+});
+
 describe('events subcollection', () => {
   const eventRef = (fs: ReturnType<typeof asUser>, eventId: string) =>
     doc(fs, 'classes', CLASS_ID, 'students', 'student-a', 'events', eventId);
