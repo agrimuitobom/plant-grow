@@ -343,7 +343,7 @@ export default function StrainRow({
           >
             観察メモ
           </label>
-          <span className="text-xs text-slate-400">{memoLength}/1000</span>
+          <span className="text-xs text-slate-500">{memoLength}/1000</span>
         </div>
         <textarea
           id={`memo-${strain.id}`}

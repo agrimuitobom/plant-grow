@@ -80,7 +80,7 @@ export default function StorageUsageCard() {
             <span className="text-sm text-slate-500">
               {usage.photoCount.toLocaleString()} 枚
             </span>
-            <span className="text-xs text-slate-400">
+            <span className="text-xs text-slate-500">
               / 無料枠 {formatBytes(FREE_TIER_BYTES)} ({(ratio * 100).toFixed(1)}%)
             </span>
           </div>

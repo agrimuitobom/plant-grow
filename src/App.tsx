@@ -261,6 +261,11 @@ export default function App() {
 
   return (
     <div className="min-h-screen px-4 py-6 md:px-8 md:py-10">
+      {/* a11y: キーボードユーザーがヘッダー / 教員モードタブを飛ばして main へ直行できる。
+          通常は画面外、Tab で focus した瞬間だけ画面に飛び込んでくる (index.css 参照)。 */}
+      <a href="#main-content" className="skip-link">
+        メインコンテンツへスキップ
+      </a>
       <header className="mx-auto mb-8 flex max-w-5xl flex-wrap items-center justify-between gap-3 print:hidden">
         <div>
           <h1 className="text-3xl font-bold text-leaf-700">🌱 植物生育管理</h1>
@@ -351,7 +356,7 @@ export default function App() {
         </div>
       )}
 
-      <main className="mx-auto flex max-w-5xl flex-col gap-6">
+      <main id="main-content" className="mx-auto flex max-w-5xl flex-col gap-6">
         {/* 教員 0 人のクラスでは、最初に「自分が教員になる」バナーを表示する。
             生徒が押したら本物の事故になるので、休日や運用開始前など人がいないタイミングで使う想定。 */}
         {needsFirstTeacher && !isTeacher && (

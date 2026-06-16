@@ -72,6 +72,7 @@ Functions の自動デプロイを動かすには、上記のサービスアカ�
 | `Cloud Build Editor` | コンテナイメージのビルド |
 | `Artifact Registry Writer` | ビルド成果物の保存先への push |
 | `Service Account User` | 関数実行 SA に化ける権限 |
+| `Cloud Scheduler Admin` | スケジュール関数 (dailyFirestoreBackup / cleanupOrphanPhotos) のスケジュール更新 |
 
 Cloud Shell から一括付与:
 
@@ -88,7 +89,8 @@ for role in \
   roles/run.admin \
   roles/cloudbuild.builds.editor \
   roles/artifactregistry.writer \
-  roles/iam.serviceAccountUser
+  roles/iam.serviceAccountUser \
+  roles/cloudscheduler.admin
 do
   gcloud projects add-iam-policy-binding $PROJECT_ID \
     --member="serviceAccount:${SA_EMAIL}" \

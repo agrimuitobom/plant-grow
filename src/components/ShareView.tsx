@@ -13,7 +13,7 @@ type Props = {
 type Status = 'loading' | 'ready' | 'not-found' | 'error';
 
 function CardFallback({ label }: { label: string }) {
-  return <div className="card text-slate-400">{label} を読み込み中…</div>;
+  return <div className="card text-slate-500">{label} を読み込み中…</div>;
 }
 
 function formatExpires(
@@ -82,7 +82,7 @@ export default function ShareView({ token }: Props) {
             このリンクは無効か、すでに有効期限が切れています。発行者にもう一度新しいリンクをお願いしてください。
           </p>
           {status === 'error' && error && (
-            <p className="mt-3 text-xs text-slate-400">技術情報: {error}</p>
+            <p className="mt-3 text-xs text-slate-500">技術情報: {error}</p>
           )}
         </div>
       </div>
@@ -101,7 +101,7 @@ export default function ShareView({ token }: Props) {
           発行時点のスナップショット (記録 {share.records.length} 日 / イベント{' '}
           {share.events.length} 件)
         </p>
-        <p className="mt-1 text-xs text-slate-400">
+        <p className="mt-1 text-xs text-slate-500">
           ※ このページは保護者向けの読み取り専用ビューです。
           {formatExpires(share.expiresAt) && (
             <> 有効期限: {formatExpires(share.expiresAt)}</>
@@ -131,7 +131,7 @@ export default function ShareView({ token }: Props) {
         </Suspense>
       </main>
 
-      <footer className="mx-auto mt-10 max-w-5xl text-center text-xs text-slate-400">
+      <footer className="mx-auto mt-10 max-w-5xl text-center text-xs text-slate-500">
         植物生育管理 — 保護者向け共有ビュー
       </footer>
     </div>

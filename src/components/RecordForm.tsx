@@ -252,6 +252,7 @@ export default function RecordForm({
           type="submit"
           className="btn-primary flex-1"
           disabled={status === 'saving' || uploadingCount > 0}
+          aria-busy={status === 'saving' || uploadingCount > 0}
         >
           {uploadingCount > 0
             ? '写真アップロード中…'

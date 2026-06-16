@@ -16,6 +16,39 @@
   input[type='date'] {
     @apply w-full rounded-xl border-2 border-slate-200 bg-white px-4 py-3 text-tap focus:border-leaf-500 focus:outline-none;
   }
+  /* a11y: マウス操作ではフォーカスリングを出さず、キーボード操作 (Tab) の時だけ
+     はっきり 2px の緑リングを出す。Tailwind の focus-visible ユーティリティを
+     全インタラクティブ要素にデフォルトで適用しておくと、教員/児童どちらの
+     キーボードユーザーも「いま選択中の要素」を見失わない。 */
+  button:focus-visible,
+  a:focus-visible,
+  select:focus-visible,
+  input:focus-visible,
+  textarea:focus-visible,
+  [role='button']:focus-visible {
+    outline: 2px solid theme('colors.leaf.600');
+    outline-offset: 2px;
+    border-radius: 6px;
+  }
+}
+
+/* a11y: スキップリンクを画面外に置きつつ、Tab で最初に到達した瞬間だけ可視化する。
+   キーボード利用者が長いヘッダー / 教員モードタブを毎回 Tab せずに main 直行できる。 */
+.skip-link {
+  position: absolute;
+  top: -100px;
+  left: 1rem;
+  z-index: 100;
+  padding: 0.75rem 1rem;
+  background: theme('colors.leaf.700');
+  color: white;
+  border-radius: 0.5rem;
+  text-decoration: none;
+  font-weight: 600;
+  transition: top 0.2s;
+}
+.skip-link:focus {
+  top: 1rem;
 }
 
 @layer components {

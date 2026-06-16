@@ -158,7 +158,7 @@ export default function GrowthChart({ records, events = [] }: GrowthChartProps) 
           />
           クラス平均を重ねる
           {classAvgStatus === 'loading' && (
-            <span className="ml-1 text-slate-400">(計算中…)</span>
+            <span className="ml-1 text-slate-500">(計算中…)</span>
           )}
           {classAvgStatus === 'error' && (
             <span
