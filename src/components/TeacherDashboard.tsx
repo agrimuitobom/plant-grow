@@ -3,6 +3,7 @@ import CommentBoard from './CommentBoard';
 import ExportCsvButton from './ExportCsvButton';
 import GrowthChart from './GrowthChart';
 import AuditLogPanel from './AuditLogPanel';
+import ClassArchiveCard from './ClassArchiveCard';
 import ParentSharePanel from './ParentSharePanel';
 import PasswordResetPanel from './PasswordResetPanel';
 import StorageUsageCard from './StorageUsageCard';
@@ -30,6 +31,8 @@ type Props = {
   currentUid: string;
   /** コメント投稿時の表示名として使う。 */
   currentDisplayName: string;
+  /** 年度アーカイブ済みなら true。コメント投稿を抑止し、アーカイブカードの表示を切替える。 */
+  classArchived?: boolean;
 };
 
 function formatLastActive(entry: RosterEntry): string {
@@ -42,7 +45,11 @@ function formatLastActive(entry: RosterEntry): string {
   return `${y}-${m}-${day}`;
 }
 
-export default function TeacherDashboard({ currentUid, currentDisplayName }: Props) {
+export default function TeacherDashboard({
+  currentUid,
+  currentDisplayName,
+  classArchived = false,
+}: Props) {
   const [tab, setTab] = useState<Tab>('students');
 
   const [roster, setRoster] = useState<RosterEntry[]>([]);
@@ -273,7 +280,12 @@ export default function TeacherDashboard({ currentUid, currentDisplayName }: Pro
             <CommentBoard
               studentUid={selected.uid}
               records={records}
-              poster={{ uid: currentUid, displayName: currentDisplayName }}
+              // アーカイブ済み年度はコメント追加不可 (Rules でも拒否)。poster を外して閲覧専用に。
+              poster={
+                classArchived
+                  ? undefined
+                  : { uid: currentUid, displayName: currentDisplayName }
+              }
               heading={`${selected.displayName} さんへのフィードバック`}
             />
           </>
@@ -463,6 +475,8 @@ export default function TeacherDashboard({ currentUid, currentDisplayName }: Pro
               </ul>
             )}
           </section>
+
+          <ClassArchiveCard archived={classArchived} />
 
           <AuditLogPanel />
         </>

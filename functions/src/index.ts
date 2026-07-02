@@ -4,7 +4,7 @@ import { getAuth } from 'firebase-admin/auth';
 import { FieldValue, getFirestore } from 'firebase-admin/firestore';
 import { getStorage } from 'firebase-admin/storage';
 import { logger, setGlobalOptions } from 'firebase-functions/v2';
-import { HttpsError, onCall } from 'firebase-functions/v2/https';
+import { HttpsError, onCall, type CallableRequest } from 'firebase-functions/v2/https';
 import { onSchedule } from 'firebase-functions/v2/scheduler';
 
 initializeApp();
@@ -35,7 +35,9 @@ type AuditEntry = {
     | 'share-revoked'
     | 'first-teacher-claimed'
     | 'teacher-promoted'
-    | 'teacher-demoted';
+    | 'teacher-demoted'
+    | 'class-archived'
+    | 'class-unarchived';
   by: string;
   byName: string | null;
   targetUid?: string;
@@ -83,7 +85,9 @@ interface ResetData {
  *
  * 成功時は監査ログ (classes/{classId}/passwordResets) に 1 エントリ書き込む。
  */
-export const resetStudentPassword = onCall<ResetData>(CALLABLE_OPTS, async (req) => {
+export const resetStudentPassword = onCall<ResetData>(
+  CALLABLE_OPTS,
+  async (req: CallableRequest<ResetData>) => {
   if (!req.auth) {
     throw new HttpsError('unauthenticated', 'ログインが必要です。');
   }
@@ -179,7 +183,9 @@ interface ClaimData {
  * 既に教員が登録されているクラスに対して呼ばれた場合は failed-precondition を返す。
  * 想定誤操作 (例: 別端末で先に他の人が登録) を明示するメッセージで伝える。
  */
-export const claimFirstTeacher = onCall<ClaimData>(CALLABLE_OPTS, async (req) => {
+export const claimFirstTeacher = onCall<ClaimData>(
+  CALLABLE_OPTS,
+  async (req: CallableRequest<ClaimData>) => {
   if (!req.auth) {
     throw new HttpsError('unauthenticated', 'ログインが必要です。');
   }
@@ -306,7 +312,9 @@ function generateShareToken(length = 32): string {
  * 同じ studentUid に対する既存の有効なリンクは破棄され (1 生徒 1 リンクの制約)、
  * 新しい token に置き換えられる。これにより家庭で配ったリンクを後から差し替えやすい。
  */
-export const createParentShare = onCall<CreateShareData>(CALLABLE_OPTS, async (req) => {
+export const createParentShare = onCall<CreateShareData>(
+  CALLABLE_OPTS,
+  async (req: CallableRequest<CreateShareData>) => {
   if (!req.auth) {
     throw new HttpsError('unauthenticated', 'ログインが必要です。');
   }
@@ -394,7 +402,9 @@ interface RevokeShareData {
   token: string;
 }
 
-export const revokeParentShare = onCall<RevokeShareData>(CALLABLE_OPTS, async (req) => {
+export const revokeParentShare = onCall<RevokeShareData>(
+  CALLABLE_OPTS,
+  async (req: CallableRequest<RevokeShareData>) => {
   if (!req.auth) {
     throw new HttpsError('unauthenticated', 'ログインが必要です。');
   }
@@ -616,7 +626,9 @@ interface UsageData {
  * Storage 容量はリストAPI でメタデータと一緒に返るので、個別 getMetadata は不要。
  * クラス規模 (数千枚オーダー) なら 1〜3 秒で完了する。
  */
-export const getStorageUsage = onCall<UsageData>(CALLABLE_OPTS, async (req) => {
+export const getStorageUsage = onCall<UsageData>(
+  CALLABLE_OPTS,
+  async (req: CallableRequest<UsageData>) => {
   if (!req.auth) {
     throw new HttpsError('unauthenticated', 'ログインが必要です。');
   }
@@ -694,7 +706,9 @@ interface ClassAveragesData {
  * パフォーマンス: 30 人 × 60 日 = 1800 doc read 程度。1〜3 秒で完了。
  * クライアント側で 5 分キャッシュするので毎回呼ばれることはない。
  */
-export const getClassAverages = onCall<ClassAveragesData>(CALLABLE_OPTS, async (req) => {
+export const getClassAverages = onCall<ClassAveragesData>(
+  CALLABLE_OPTS,
+  async (req: CallableRequest<ClassAveragesData>) => {
   if (!req.auth) {
     throw new HttpsError('unauthenticated', 'ログインが必要です。');
   }
@@ -789,7 +803,9 @@ interface TeacherRoleData {
  * 既に教員の場合は冪等に成功扱い (alreadyTeacher: true)。
  * 監査ログ (auditLog/{auto}) に type=teacher-promoted エントリを追記する。
  */
-export const promoteTeacher = onCall<TeacherRoleData>(CALLABLE_OPTS, async (req) => {
+export const promoteTeacher = onCall<TeacherRoleData>(
+  CALLABLE_OPTS,
+  async (req: CallableRequest<TeacherRoleData>) => {
   if (!req.auth) {
     throw new HttpsError('unauthenticated', 'ログインが必要です。');
   }
@@ -866,7 +882,9 @@ export const promoteTeacher = onCall<TeacherRoleData>(CALLABLE_OPTS, async (req)
  * 既に教員でない場合は冪等に成功扱い。
  * 監査ログ (auditLog/{auto}) に type=teacher-demoted エントリを追記する。
  */
-export const demoteTeacher = onCall<TeacherRoleData>(CALLABLE_OPTS, async (req) => {
+export const demoteTeacher = onCall<TeacherRoleData>(
+  CALLABLE_OPTS,
+  async (req: CallableRequest<TeacherRoleData>) => {
   if (!req.auth) {
     throw new HttpsError('unauthenticated', 'ログインが必要です。');
   }
@@ -916,6 +934,66 @@ export const demoteTeacher = onCall<TeacherRoleData>(CALLABLE_OPTS, async (req) 
 
   logger.info(
     `Teacher demoted: classId=${classId} target=${targetUid} by=${callerUid}`
+  );
+  return { ok: true };
+});
+
+interface ArchiveData {
+  classId: string;
+  archived: boolean;
+}
+
+/**
+ * 年度アーカイブの ON/OFF を切り替える。
+ *
+ * archived=true にすると Rules 側 (isClassArchived) が records / events / comments /
+ * 名簿への全クライアント書き込みを拒否するようになる。読み取りは従来通りなので、
+ * 生徒・教員とも過去年度を「読み取り専用の成果物」として参照し続けられる。
+ *
+ * 呼出元はそのクラスの教員のみ。誤操作はいつでも archived=false で解除できる。
+ * どちらの操作も auditLog に残る。
+ */
+export const setClassArchived = onCall<ArchiveData>(
+  CALLABLE_OPTS,
+  async (req: CallableRequest<ArchiveData>) => {
+  if (!req.auth) {
+    throw new HttpsError('unauthenticated', 'ログインが必要です。');
+  }
+  const callerUid = req.auth.uid;
+  const { classId, archived } = req.data ?? ({} as ArchiveData);
+
+  if (!classId || typeof archived !== 'boolean') {
+    throw new HttpsError('invalid-argument', 'classId / archived は必須です。');
+  }
+
+  const db = getFirestore();
+  const classRef = db.collection('classes').doc(classId);
+
+  const teacherSnap = await classRef.collection('teachers').doc(callerUid).get();
+  if (!teacherSnap.exists) {
+    throw new HttpsError(
+      'permission-denied',
+      'このクラスの教員のみアーカイブ状態を変更できます。'
+    );
+  }
+
+  await classRef.set(
+    {
+      archived,
+      archivedAt: archived ? FieldValue.serverTimestamp() : null,
+      archivedBy: archived ? callerUid : null,
+    },
+    { merge: true }
+  );
+
+  await writeAuditLog(db, classId, {
+    type: archived ? 'class-archived' : 'class-unarchived',
+    by: callerUid,
+    byName: (teacherSnap.data()?.displayName as string | undefined) ?? null,
+  });
+
+  logger.info(
+    `Class archive toggled: classId=${classId} archived=${archived} by=${callerUid}`
   );
   return { ok: true };
 });

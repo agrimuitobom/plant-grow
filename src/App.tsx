@@ -25,6 +25,7 @@ import {
   fetchRegisteredCategories,
   saveRegisteredCategories,
 } from './lib/categories';
+import { fetchClassMeta } from './lib/classArchive';
 import { markAllCommentsRead } from './lib/comments';
 import { subscribeToEvents } from './lib/events';
 import {
@@ -71,6 +72,9 @@ export default function App() {
   const [teacherClasses, setTeacherClasses] = useState<string[]>([]);
   // クラスに教員が 1 人もいない時のみ true。FirstTeacherBanner の表示制御に使う。
   const [needsFirstTeacher, setNeedsFirstTeacher] = useState(false);
+  // 年度アーカイブ済みクラスかどうか。true なら入力系 UI を隠して読み取り専用にする
+  // (Rules 側でも書き込みは拒否されるので、これは UX のための二重化)。
+  const [classArchived, setClassArchived] = useState(false);
   const [registeredCategories, setRegisteredCategories] = useState<string[]>([]);
   // 未読コメントの計算用: ロード時に名簿の commentsLastReadAt をミリ秒で取り込む。
   // 既読化したら setLastReadMs(Date.now()) で楽観更新 → サーバ書き込み。
@@ -186,12 +190,19 @@ export default function App() {
       setRegisteredCategories([]);
       setLastReadMs(0);
       setUnreadComments(0);
+      setClassArchived(false);
       return;
     }
     let cancelled = false;
     fetchRegisteredCategories(uid)
       .then((list) => {
         if (!cancelled) setRegisteredCategories(list);
+      })
+      .catch(() => {});
+    // 年度アーカイブ状態。取得失敗時は「運用中」扱い (書けなければ Rules が守る)。
+    fetchClassMeta()
+      .then((meta) => {
+        if (!cancelled) setClassArchived(meta?.archived === true);
       })
       .catch(() => {});
     // 名簿の commentsLastReadAt を 1 回フェッチ。以降は楽観更新で済ませる
@@ -368,6 +379,7 @@ export default function App() {
             <TeacherDashboard
               currentUid={user.uid}
               currentDisplayName={user.displayName || user.email || user.uid}
+              classArchived={classArchived}
             />
           </Suspense>
         ) : (
@@ -388,39 +400,61 @@ export default function App() {
               <div className="card text-red-600 print:hidden">読み込みエラー: {loadError}</div>
             )}
 
-            <div className="print:hidden">
-              <DatePickerCard
-                value={selectedDate}
-                onChange={setSelectedDate}
-                recordedDates={records.map((r) => r.date)}
-              />
-            </div>
+            {/* 年度アーカイブ済み: 入力系 UI を隠し、読み取り専用であることを明示する。
+                Rules 側でも書き込みは拒否されるので、これは案内のための表示。 */}
+            {classArchived && (
+              <div className="card border-2 border-slate-300 bg-slate-50 print:hidden">
+                <p className="font-semibold text-slate-700">
+                  📦 この年度はアーカイブ済みです (読み取り専用)
+                </p>
+                <p className="mt-1 text-sm text-slate-600">
+                  記録の閲覧・印刷・CSV エクスポートはできますが、新しい記録は追加できません。
+                  新年度は、ログイン画面の「クラス: … [変更]」から新しいクラス ID で始めてください。
+                </p>
+              </div>
+            )}
 
-            <div className="print:hidden">
-              <CategoryManager
-                categories={registeredCategories}
-                usedInRecords={usedCategoriesInRecords}
-                onChange={persistCategories}
-              />
-            </div>
+            {!classArchived && (
+              <div className="print:hidden">
+                <DatePickerCard
+                  value={selectedDate}
+                  onChange={setSelectedDate}
+                  recordedDates={records.map((r) => r.date)}
+                />
+              </div>
+            )}
 
-            <div className="print:hidden">
-              <RecordForm
-                user={user}
-                dateId={selectedDate}
-                onSaved={handleSaved}
-                registeredCategories={registeredCategories}
-                onAddCategory={handleAddCategoryFromRow}
-                records={records}
-              />
-            </div>
+            {!classArchived && (
+              <div className="print:hidden">
+                <CategoryManager
+                  categories={registeredCategories}
+                  usedInRecords={usedCategoriesInRecords}
+                  onChange={persistCategories}
+                />
+              </div>
+            )}
+
+            {!classArchived && (
+              <div className="print:hidden">
+                <RecordForm
+                  user={user}
+                  dateId={selectedDate}
+                  onSaved={handleSaved}
+                  registeredCategories={registeredCategories}
+                  onAddCategory={handleAddCategoryFromRow}
+                  records={records}
+                />
+              </div>
+            )}
 
             <Suspense fallback={<CardFallback label="観察イベント" />}>
               <EventLog
                 studentUid={user.uid}
                 dateId={selectedDate}
                 events={events}
-                poster={user}
+                // アーカイブ済みは poster を渡さない = 追加チップと削除ボタンが消えて
+                // 「直近 14 日」の読み取り専用ダイジェスト表示になる。
+                poster={classArchived ? undefined : user}
               />
             </Suspense>
 
