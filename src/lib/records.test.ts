@@ -1,5 +1,24 @@
 import { describe, expect, it } from 'vitest';
-import { calcAverages, toDateId } from './records';
+import { calcAverages, normalizeMeasure, toDateId } from './records';
+
+describe('normalizeMeasure', () => {
+  it('treats the empty string as null — NOT as 0 (Number("") === 0 の罠)', () => {
+    // これが 0 になると未入力の株が平均を引き下げる。E2E で発覚した実バグの回帰テスト。
+    expect(normalizeMeasure('')).toBeNull();
+  });
+
+  it('passes through finite numbers including a legitimate 0', () => {
+    expect(normalizeMeasure(0)).toBe(0); // 発芽直後 0cm は正当な値
+    expect(normalizeMeasure(12.5)).toBe(12.5);
+  });
+
+  it('rejects null / undefined / non-finite', () => {
+    expect(normalizeMeasure(null)).toBeNull();
+    expect(normalizeMeasure(undefined)).toBeNull();
+    expect(normalizeMeasure(Number.NaN)).toBeNull();
+    expect(normalizeMeasure(Number.POSITIVE_INFINITY)).toBeNull();
+  });
+});
 
 describe('calcAverages', () => {
   it('returns null/null for an empty array', () => {

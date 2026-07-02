@@ -1,6 +1,7 @@
 import { initializeApp } from 'firebase/app';
 import {
   type User,
+  connectAuthEmulator,
   createUserWithEmailAndPassword,
   getAuth,
   onAuthStateChanged,
@@ -9,11 +10,12 @@ import {
   updateProfile,
 } from 'firebase/auth';
 import {
+  connectFirestoreEmulator,
   initializeFirestore,
   persistentLocalCache,
   persistentMultipleTabManager,
 } from 'firebase/firestore';
-import { getStorage } from 'firebase/storage';
+import { connectStorageEmulator, getStorage } from 'firebase/storage';
 
 // これらの値は「公開しても安全」な識別子 (アクセス制御は firestore.rules 側で実施)。
 // ローカルでは .env.local、CI/本番では GitHub Actions の Secrets から注入される。
@@ -88,6 +90,15 @@ export const db = initializeFirestore(app, {
 });
 export const auth = getAuth(app);
 export const storage = getStorage(app);
+
+// E2E テスト用: VITE_USE_EMULATORS=true のとき、本番ではなくローカルの
+// Firebase Emulator に接続する (playwright.config.ts が設定する)。
+// 本番ビルドでは env が 'true' にならないため、この分岐は実行されない。
+if (import.meta.env.VITE_USE_EMULATORS === 'true') {
+  connectAuthEmulator(auth, 'http://127.0.0.1:9099', { disableWarnings: true });
+  connectFirestoreEmulator(db, '127.0.0.1', 8080);
+  connectStorageEmulator(storage, '127.0.0.1', 9199);
+}
 
 /**
  * 学校用 ID を Firebase Auth が要求するメール形式に変換する。

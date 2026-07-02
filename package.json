@@ -11,6 +11,7 @@
     "test": "vitest run",
     "test:watch": "vitest",
     "test:rules": "firebase emulators:exec --only firestore --project plant-grow-test 'vitest run --config vitest.rules.config.ts'",
+    "test:e2e": "firebase emulators:exec --only auth,firestore,storage --project plant-grow-test 'playwright test'",
     "deploy": "npm run build && firebase deploy --only hosting"
   },
   "dependencies": {
@@ -23,6 +24,7 @@
   },
   "devDependencies": {
     "@firebase/rules-unit-testing": "^3.0.4",
+    "@playwright/test": "^1.61.1",
     "@types/react": "^18.3.28",
     "@types/react-dom": "^18.3.7",
     "@vite-pwa/assets-generator": "^1.0.2",
