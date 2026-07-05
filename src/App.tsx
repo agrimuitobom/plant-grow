@@ -4,6 +4,7 @@ import CategoryManager from './components/CategoryManager';
 import DatePickerCard from './components/DatePickerCard';
 import ExportCsvButton from './components/ExportCsvButton';
 import FirstTeacherBanner from './components/FirstTeacherBanner';
+import OnboardingTour from './components/OnboardingTour';
 import RecordForm from './components/RecordForm';
 import RecordsList from './components/RecordsList';
 import SignInScreen from './components/SignInScreen';
@@ -75,6 +76,22 @@ export default function App() {
   // 年度アーカイブ済みクラスかどうか。true なら入力系 UI を隠して読み取り専用にする
   // (Rules 側でも書き込みは拒否されるので、これは UX のための二重化)。
   const [classArchived, setClassArchived] = useState(false);
+  // 初回ログイン時の使い方ツアー。1 度閉じたら localStorage で抑止、フッターから再表示可。
+  const [showTour, setShowTour] = useState<boolean>(() => {
+    try {
+      return localStorage.getItem('plant-grow.tourSeen.v1') !== 'done';
+    } catch {
+      return false; // private mode 等では毎回出すより出さない方が邪魔にならない
+    }
+  });
+  const closeTour = () => {
+    setShowTour(false);
+    try {
+      localStorage.setItem('plant-grow.tourSeen.v1', 'done');
+    } catch {
+      /* 保存できなくてもセッション中は state で抑止される */
+    }
+  };
   const [registeredCategories, setRegisteredCategories] = useState<string[]>([]);
   // 未読コメントの計算用: ロード時に名簿の commentsLastReadAt をミリ秒で取り込む。
   // 既読化したら setLastReadMs(Date.now()) で楽観更新 → サーバ書き込み。
@@ -507,12 +524,23 @@ export default function App() {
 
       <footer className="mx-auto mt-10 max-w-5xl text-center text-xs text-slate-400 print:hidden">
         <p>MVP build — {new Date().getFullYear()}</p>
-        <p className="mt-1">
+        <p className="mt-1 flex justify-center gap-4">
           <a href="/privacy" className="underline hover:text-leaf-700">
             プライバシーポリシー
           </a>
+          <button
+            type="button"
+            onClick={() => setShowTour(true)}
+            className="underline hover:text-leaf-700"
+          >
+            ❓ 使い方を見る
+          </button>
         </p>
       </footer>
+
+      {/* 使い方ツアー: 教員モード表示中は出さない (生徒向けの説明のため)。
+          初回だけ自動表示、以降はフッターの「使い方を見る」から。 */}
+      {showTour && !showTeacherView && <OnboardingTour onClose={closeTour} />}
 
       {/* 未読コメントのフローティングバッジ。生徒モード時のみ、未読 > 0 の時だけ表示。
           タップでコメント欄へスムーズスクロール + 楽観的に既読化 (UI は即座に消える)。 */}
