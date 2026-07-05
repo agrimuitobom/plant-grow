@@ -54,6 +54,19 @@ export function calcAverages(strains: Pick<Strain, 'height' | 'leafCount'>[]): A
   return { height: avg('height'), leafCount: avg('leafCount') };
 }
 
+/**
+ * フォームの数値入力 (number | '') を保存用の number | null に正規化する。
+ *
+ * ⚠️ `Number('') === 0` の罠に注意: 空文字をそのまま Number() に通すと 0 に化けて
+ * 「未入力の株」が「0cm の株」として平均計算に混入する (E2E テストで発覚した実バグ)。
+ * 空文字は必ず null として弾いてから数値判定する。
+ */
+export function normalizeMeasure(v: number | '' | null | undefined): number | null {
+  if (v === '' || v == null) return null;
+  const n = Number(v);
+  return Number.isFinite(n) ? n : null;
+}
+
 export function toDateId(date: Date | string | number): string {
   const d = date instanceof Date ? date : new Date(date);
   const y = d.getFullYear();
@@ -152,8 +165,8 @@ export async function saveRecord({
     // 品目は表示・絞り込みのキー。トリムして 40 字まで。空文字も許容 (= 未分類)。
     category: typeof s.category === 'string' ? s.category.trim().slice(0, 40) : '',
     name: s.name?.trim() || s.id,
-    height: Number.isFinite(Number(s.height)) ? Number(s.height) : null,
-    leafCount: Number.isFinite(Number(s.leafCount)) ? Number(s.leafCount) : null,
+    height: normalizeMeasure(s.height),
+    leafCount: normalizeMeasure(s.leafCount),
     // 観察メモ。長文は Firestore の 1MB ドキュメント制限を圧迫するので 1000 字に丸める。
     memo: typeof s.memo === 'string' ? s.memo.slice(0, 1000) : '',
     // 新形式のみ書き込む。1 株 1 日に複数枚対応。

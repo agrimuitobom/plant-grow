@@ -4,6 +4,9 @@
 PWA としてホーム画面に追加でき、オフラインでも観察記録を続けられます。
 React (Vite + vite-plugin-pwa) + Tailwind CSS + Firebase (Firestore + Storage + メール/パスワード Auth) + Recharts。
 
+> **運用担当の先生へ**: 日常の対応 (パスワード再発行・年度更新・トラブル対処・引き継ぎ) は
+> [docs/RUNBOOK.md](docs/RUNBOOK.md) にまとまっています。この README は開発者向けです。
+
 ## セットアップ & デプロイ手順
 
 ### 1. Firebase コンソールでプロジェクトを作る

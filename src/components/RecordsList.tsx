@@ -39,8 +39,12 @@ type Props = {
   onSelectDate?: (date: string) => void;
 };
 
+// 初期表示行数。1 学期 ~60 日でもテーブルが長くなりすぎないよう最新 30 日に絞る。
+const PAGE_SIZE = 30;
+
 export default function RecordsList({ records, selectedDate, onSelectDate }: Props) {
   const [selected, setSelected] = useState<string>(ALL_KEY);
+  const [visibleCount, setVisibleCount] = useState(PAGE_SIZE);
   const categories = useMemo(() => uniqueCategories(records), [records]);
   const showTabs =
     categories.length > 1 || (categories.length === 1 && categories[0] !== UNCATEGORIZED);
@@ -109,12 +113,17 @@ export default function RecordsList({ records, selectedDate, onSelectDate }: Pro
                 </td>
               </tr>
             ) : (
-              rows.map((r) => {
+              rows.map((r, index) => {
                 const isCurrent = r.date === selectedDate;
+                // ページング: 画面では最新 visibleCount 行のみ描画コストを払う。
+                // 印刷時は print:table-row で全行復活させ、ポートフォリオの完全性を保つ。
+                const isPaged = index >= visibleCount;
                 return (
                   <tr
                     key={r.date}
-                    className={`border-t border-slate-100 ${isCurrent ? 'bg-leaf-50' : ''}`}
+                    className={`border-t border-slate-100 ${isCurrent ? 'bg-leaf-50' : ''} ${
+                      isPaged ? 'hidden print:table-row' : ''
+                    }`}
                   >
                     <td className="py-2 pr-2 align-top">
                       {onSelectDate ? (
@@ -154,6 +163,18 @@ export default function RecordsList({ records, selectedDate, onSelectDate }: Pro
           </tbody>
         </table>
       </div>
+
+      {rows.length > visibleCount && (
+        <div className="mt-3 text-center print:hidden">
+          <button
+            type="button"
+            onClick={() => setVisibleCount((n) => n + PAGE_SIZE)}
+            className="btn-ghost !min-h-0 !px-4 !py-2 text-sm"
+          >
+            さらに表示 (残り {rows.length - visibleCount} 日)
+          </button>
+        </div>
+      )}
     </section>
   );
 }

@@ -42,6 +42,23 @@ service cloud.firestore {
         && exists(/databases/$(database)/documents/classes/$(classId)/teachers/$(request.auth.uid));
     }
 
+    // 年度アーカイブ判定。
+    // クラスメタドキュメント (classes/{classId}) は setClassArchived Function だけが書く。
+    // メタドキュメントが存在しない (= 運用中のクラス) 場合は必ず false を返すよう
+    // exists() で先にガードする (存在しない doc の .data 参照は評価エラーになるため)。
+    function isClassArchived(classId) {
+      return exists(/databases/$(database)/documents/classes/$(classId))
+        && get(/databases/$(database)/documents/classes/$(classId)).data.archived == true;
+    }
+
+    // クラスメタドキュメント (アーカイブ状態など)。
+    // 読み取りはサインイン済み全員 (アプリ起動時に「この年度は凍結済みか」を出すため)。
+    // 書き込みは setClassArchived Function のみ → auditLog に必ず痕跡が残る。
+    match /classes/{classId} {
+      allow read: if isSignedIn();
+      allow write: if false;
+    }
+
     // 教員ドキュメント。
     // - 任意のサインイン済みユーザに read を許可 (自分が教員か検出する目的)。
     // - 書き込みは全て Cloud Function 経由 (Admin SDK で Rules バイパス) に統一:
@@ -71,9 +88,11 @@ service cloud.firestore {
 
     // クラス名簿。生徒は自分のエントリだけ upsert でき、
     // 同じクラスの教員は全員分を一覧できる。
+    // アーカイブ済み年度は名簿も凍結 (新規参加・表示名変更ともに不可)。
     match /classes/{classId}/students/{userId} {
       allow read: if isOwner(userId) || isTeacher(classId);
       allow create, update: if isOwner(userId)
+        && !isClassArchived(classId)
         && request.resource.data.uid == userId
         && request.resource.data.keys().hasAll(['uid', 'displayName']);
       allow delete: if false;
@@ -81,9 +100,11 @@ service cloud.firestore {
 
     // 各生徒は自分の領域だけ R/W 可能。教員は read だけ可能 (書き込みは本人限定)。
     // 監査用に createdBy / updatedBy を記録する (パスの uid と一致を強制)。
+    // アーカイブ済み年度への書き込みは全面凍結 (読み取りは従来通り)。
     match /classes/{classId}/students/{userId}/records/{dateId} {
       allow read: if isOwner(userId) || isTeacher(classId);
       allow create, update: if isOwner(userId)
+        && !isClassArchived(classId)
         && isValidDateId(dateId)
         && isValidRecord(request.resource.data)
         && hasAuditFields(request.resource.data, userId);
@@ -93,29 +114,32 @@ service cloud.firestore {
       // 不変アーカイブとして create のみ許可、update/delete はクライアントから不可。
       match /history/{historyId} {
         allow read: if isOwner(userId) || isTeacher(classId);
-        allow create: if isOwner(userId);
+        allow create: if isOwner(userId) && !isClassArchived(classId);
         allow update, delete: if false;
       }
 
       // 教員から生徒へのフィードバックコメント。
       // - 生徒は自分のレコードに付いたコメントを read のみ可。
       // - 教員のみ書き込み可、各教員は自分の作成したコメントだけ編集・削除可。
-      // - text は 1〜1000 文字。
+      // - text は 1〜1000 文字。アーカイブ済み年度はコメントも凍結。
       match /comments/{commentId} {
         allow read: if isOwner(userId) || isTeacher(classId);
         allow create: if isTeacher(classId)
+          && !isClassArchived(classId)
           && request.resource.data.createdBy == request.auth.uid
           && request.resource.data.keys().hasAll(['text', 'createdBy', 'createdByName'])
           && request.resource.data.text is string
           && request.resource.data.text.size() > 0
           && request.resource.data.text.size() <= 1000;
         allow update: if isTeacher(classId)
+          && !isClassArchived(classId)
           && resource.data.createdBy == request.auth.uid
           && request.resource.data.createdBy == request.auth.uid
           && request.resource.data.text is string
           && request.resource.data.text.size() > 0
           && request.resource.data.text.size() <= 1000;
         allow delete: if isTeacher(classId)
+          && !isClassArchived(classId)
           && resource.data.createdBy == request.auth.uid;
       }
     }
@@ -126,6 +150,7 @@ service cloud.firestore {
     match /classes/{classId}/students/{userId}/events/{eventId} {
       allow read: if isOwner(userId) || isTeacher(classId);
       allow create: if isOwner(userId)
+        && !isClassArchived(classId)
         && request.resource.data.createdBy == userId
         && request.resource.data.date is string
         && isValidDateId(request.resource.data.date)
@@ -134,7 +159,7 @@ service cloud.firestore {
           'weather-sunny', 'weather-cloudy', 'weather-rain', 'weather-storm'
         ];
       allow update: if false;
-      allow delete: if isOwner(userId);
+      allow delete: if isOwner(userId) && !isClassArchived(classId);
     }
 
     // 保護者向け共有スナップショット。

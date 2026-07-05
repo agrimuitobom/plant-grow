@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { recordsToCsv, toCsvBlob } from './csv';
+import { classRecordsToCsv, recordsToCsv, toCsvBlob } from './csv';
 import type { RecordDoc } from '../types';
 
 function rec(date: string, strains: RecordDoc['strains']): RecordDoc {
@@ -149,6 +149,52 @@ describe('recordsToCsv', () => {
     ]);
     // name 空 → s.id にフォールバック ('A'), category undefined → '', photos undefined → ''
     expect(csv.split('\r\n')[1]).toBe('2026-04-22,,A,,,');
+  });
+});
+
+describe('classRecordsToCsv', () => {
+  it('prepends a 生徒名 column and concatenates all students', () => {
+    const csv = classRecordsToCsv([
+      {
+        studentName: 'あおい',
+        records: [
+          rec('2026-04-20', [
+            {
+              id: 'A',
+              category: 'トマト',
+              name: 'A株',
+              height: 12.5,
+              leafCount: 6,
+              memo: '',
+              photos: [],
+            },
+          ]),
+        ],
+      },
+      {
+        studentName: 'かえで',
+        records: [
+          rec('2026-04-21', [
+            {
+              id: 'A',
+              category: 'ナス',
+              name: 'A株',
+              height: 8,
+              leafCount: 4,
+              memo: '',
+              photos: [],
+            },
+          ]),
+        ],
+      },
+    ]);
+    expect(csv).toBe(
+      [
+        '生徒名,日付,品目,株名,草丈(cm),葉枚数(枚),写真URL',
+        'あおい,2026-04-20,トマト,A株,12.5,6,',
+        'かえで,2026-04-21,ナス,A株,8,4,',
+      ].join('\r\n')
+    );
   });
 });
 

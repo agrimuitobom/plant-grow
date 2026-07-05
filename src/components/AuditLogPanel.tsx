@@ -18,7 +18,9 @@ type UnifiedEntry = {
     | 'share-revoked'
     | 'first-teacher-claimed'
     | 'teacher-promoted'
-    | 'teacher-demoted';
+    | 'teacher-demoted'
+    | 'class-archived'
+    | 'class-unarchived';
   byName: string | null;
   by: string;
   targetName?: string | null;
@@ -132,6 +134,20 @@ function describe(entry: UnifiedEntry): React.ReactNode {
           {' が '}
           <span className="font-semibold text-slate-700">{target}</span>
           {' の教員ロールを解除'}
+        </>
+      );
+    case 'class-archived':
+      return (
+        <>
+          <span className="font-semibold text-leaf-700">{actor}</span>
+          {' がこの年度をアーカイブ (読み取り専用化)'}
+        </>
+      );
+    case 'class-unarchived':
+      return (
+        <>
+          <span className="font-semibold text-leaf-700">{actor}</span>
+          {' がアーカイブを解除'}
         </>
       );
   }

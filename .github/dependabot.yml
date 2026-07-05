@@ -1,0 +1,36 @@
+# 依存パッケージの更新 PR を自動で作る設定。
+# 運用ルール: CI (test.yml) が緑なら基本そのままマージして OK。
+# メジャーバージョン更新 (breaking change の可能性) だけは変更内容を一読してから。
+version: 2
+updates:
+  # フロントエンド (ルートの package.json)
+  - package-ecosystem: npm
+    directory: /
+    schedule:
+      interval: monthly
+    # 細かい PR が乱立しないよう、パッチ/マイナーはまとめて 1 本の PR にする
+    groups:
+      minor-and-patch:
+        update-types:
+          - minor
+          - patch
+    open-pull-requests-limit: 5
+
+  # Cloud Functions (functions/package.json)
+  - package-ecosystem: npm
+    directory: /functions
+    schedule:
+      interval: monthly
+    groups:
+      minor-and-patch:
+        update-types:
+          - minor
+          - patch
+    open-pull-requests-limit: 5
+
+  # GitHub Actions のバージョン (actions/checkout@v4 など)
+  - package-ecosystem: github-actions
+    directory: /
+    schedule:
+      interval: monthly
+    open-pull-requests-limit: 3

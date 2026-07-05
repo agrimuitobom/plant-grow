@@ -1,8 +1,10 @@
-import { useCallback, useEffect, useState } from 'react';
+import { useCallback, useEffect, useMemo, useState } from 'react';
 import CommentBoard from './CommentBoard';
 import ExportCsvButton from './ExportCsvButton';
 import GrowthChart from './GrowthChart';
 import AuditLogPanel from './AuditLogPanel';
+import ClassArchiveCard from './ClassArchiveCard';
+import EvaluationSummary from './EvaluationSummary';
 import ParentSharePanel from './ParentSharePanel';
 import PasswordResetPanel from './PasswordResetPanel';
 import StorageUsageCard from './StorageUsageCard';
@@ -23,13 +25,15 @@ import type { EventDoc, RecordDoc, RosterEntry, TeacherProfile } from '../types'
 type RosterStatus = 'loading' | 'ready' | 'error';
 type StudentStatus = 'idle' | 'loading' | 'ready' | 'error';
 type TeachersStatus = 'idle' | 'loading' | 'ready' | 'error';
-type Tab = 'students' | 'teachers';
+type Tab = 'students' | 'summary' | 'teachers';
 
 type Props = {
   /** 自分自身を解除させないために必要。 */
   currentUid: string;
   /** コメント投稿時の表示名として使う。 */
   currentDisplayName: string;
+  /** 年度アーカイブ済みなら true。コメント投稿を抑止し、アーカイブカードの表示を切替える。 */
+  classArchived?: boolean;
 };
 
 function formatLastActive(entry: RosterEntry): string {
@@ -42,7 +46,11 @@ function formatLastActive(entry: RosterEntry): string {
   return `${y}-${m}-${day}`;
 }
 
-export default function TeacherDashboard({ currentUid, currentDisplayName }: Props) {
+export default function TeacherDashboard({
+  currentUid,
+  currentDisplayName,
+  classArchived = false,
+}: Props) {
   const [tab, setTab] = useState<Tab>('students');
 
   const [roster, setRoster] = useState<RosterEntry[]>([]);
@@ -62,6 +70,50 @@ export default function TeacherDashboard({ currentUid, currentDisplayName }: Pro
   const [busy, setBusy] = useState(false);
   const [resettingPassword, setResettingPassword] = useState(false);
   const [sharingParent, setSharingParent] = useState(false);
+
+  // 一覧の並び順。評価作業は名簿 (あいうえお) 順が基本なので name を既定にする。
+  // 「誰がまだ記録していないか」を見たい時のために最終記録順も残す。
+  const [sortMode, setSortMode] = useState<'name' | 'recent'>('name');
+
+  // subscribeToClassRoster は lastRecordedAt desc で返してくる。名前順はここで並べ直す。
+  // localeCompare('ja') はかな・ローマ字名なら五十音/アルファベット順に並ぶ
+  // (漢字は読みを持たないため文字コード順になる点は登録時の表示名運用でカバー)。
+  const sortedRoster = useMemo(() => {
+    if (sortMode === 'recent') return roster;
+    return [...roster].sort((a, b) =>
+      a.displayName.localeCompare(b.displayName, 'ja')
+    );
+  }, [roster, sortMode]);
+
+  // 生徒詳細のナビゲーション: 現在の並び順の中で前後の生徒へ移動する。
+  const selectedIndex = useMemo(
+    () =>
+      selected ? sortedRoster.findIndex((s) => s.uid === selected.uid) : -1,
+    [sortedRoster, selected]
+  );
+  const prevStudent = selectedIndex > 0 ? sortedRoster[selectedIndex - 1] : null;
+  const nextStudent =
+    selectedIndex >= 0 && selectedIndex < sortedRoster.length - 1
+      ? sortedRoster[selectedIndex + 1]
+      : null;
+
+  // ← → キーでも前後の生徒に移動できるようにする (成績付けの高速化)。
+  // コメント欄などの入力中は誤爆しないよう、フォーム要素にフォーカスがある時は無視。
+  useEffect(() => {
+    if (!selected) return;
+    const onKeyDown = (e: KeyboardEvent) => {
+      const target = e.target as HTMLElement | null;
+      const tag = target?.tagName;
+      if (tag === 'INPUT' || tag === 'TEXTAREA' || tag === 'SELECT') return;
+      if (e.key === 'ArrowLeft' && prevStudent) {
+        setSelected(prevStudent);
+      } else if (e.key === 'ArrowRight' && nextStudent) {
+        setSelected(nextStudent);
+      }
+    };
+    window.addEventListener('keydown', onKeyDown);
+    return () => window.removeEventListener('keydown', onKeyDown);
+  }, [selected, prevStudent, nextStudent]);
 
   // 別の生徒に切り替えたら、パスワードリセットパネルは自動で閉じる。
   useEffect(() => {
@@ -198,6 +250,40 @@ export default function TeacherDashboard({ currentUid, currentDisplayName }: Pro
             {selected.email && (
               <p className="text-sm text-slate-500">{selected.email}</p>
             )}
+            {/* 前後の生徒への移動。評価作業で一覧に戻らず次々に確認できる。
+                ← → キーでも移動可能 (入力中を除く)。 */}
+            <div className="mt-3 flex items-center gap-2">
+              <button
+                type="button"
+                onClick={() => prevStudent && setSelected(prevStudent)}
+                disabled={!prevStudent}
+                className="btn-ghost !min-h-0 !px-3 !py-2 text-sm disabled:opacity-30"
+                aria-label={
+                  prevStudent ? `前の生徒 (${prevStudent.displayName}) へ` : '前の生徒なし'
+                }
+                title={prevStudent ? `← ${prevStudent.displayName}` : undefined}
+              >
+                ← 前へ
+              </button>
+              <span className="text-xs tabular-nums text-slate-500">
+                {selectedIndex + 1} / {sortedRoster.length} 人
+              </span>
+              <button
+                type="button"
+                onClick={() => nextStudent && setSelected(nextStudent)}
+                disabled={!nextStudent}
+                className="btn-ghost !min-h-0 !px-3 !py-2 text-sm disabled:opacity-30"
+                aria-label={
+                  nextStudent ? `次の生徒 (${nextStudent.displayName}) へ` : '次の生徒なし'
+                }
+                title={nextStudent ? `${nextStudent.displayName} →` : undefined}
+              >
+                次へ →
+              </button>
+              <span className="hidden text-xs text-slate-400 md:inline">
+                (キーボードの ← → でも移動できます)
+              </span>
+            </div>
           </div>
           <div className="flex flex-wrap gap-2">
             <ExportCsvButton records={records} ownerLabel={selected.displayName} />
@@ -273,7 +359,12 @@ export default function TeacherDashboard({ currentUid, currentDisplayName }: Pro
             <CommentBoard
               studentUid={selected.uid}
               records={records}
-              poster={{ uid: currentUid, displayName: currentDisplayName }}
+              // アーカイブ済み年度はコメント追加不可 (Rules でも拒否)。poster を外して閲覧専用に。
+              poster={
+                classArchived
+                  ? undefined
+                  : { uid: currentUid, displayName: currentDisplayName }
+              }
               heading={`${selected.displayName} さんへのフィードバック`}
             />
           </>
@@ -317,6 +408,18 @@ export default function TeacherDashboard({ currentUid, currentDisplayName }: Pro
         </button>
         <button
           type="button"
+          onClick={() => setTab('summary')}
+          className={`rounded-full px-4 py-2 text-sm font-semibold transition ${
+            tab === 'summary'
+              ? 'bg-leaf-500 text-white shadow'
+              : 'bg-slate-100 text-slate-700 hover:bg-slate-200'
+          }`}
+          aria-pressed={tab === 'summary'}
+        >
+          評価サマリー
+        </button>
+        <button
+          type="button"
           onClick={() => setTab('teachers')}
           className={`rounded-full px-4 py-2 text-sm font-semibold transition ${
             tab === 'teachers'
@@ -338,13 +441,37 @@ export default function TeacherDashboard({ currentUid, currentDisplayName }: Pro
               <span className="text-xs text-slate-500">{roster.length} 名</span>
             </header>
 
+          <div className="mt-3 flex flex-wrap items-center gap-2">
+            <span className="text-xs text-slate-500">並び順:</span>
+            {(
+              [
+                { key: 'name', label: '名前順' },
+                { key: 'recent', label: '最終記録順' },
+              ] as const
+            ).map((mode) => (
+              <button
+                key={mode.key}
+                type="button"
+                onClick={() => setSortMode(mode.key)}
+                className={`rounded-full px-3 py-1 text-xs font-semibold transition ${
+                  sortMode === mode.key
+                    ? 'bg-leaf-500 text-white shadow'
+                    : 'bg-slate-100 text-slate-600 hover:bg-slate-200'
+                }`}
+                aria-pressed={sortMode === mode.key}
+              >
+                {mode.label}
+              </button>
+            ))}
+          </div>
+
           {roster.length === 0 ? (
             <p className="mt-4 text-slate-500">
               まだ記録を保存した生徒がいません。生徒が観察を保存すると一覧に表示されます。
             </p>
           ) : (
             <ul className="mt-4 grid grid-cols-1 gap-3 sm:grid-cols-2 lg:grid-cols-3">
-              {roster.map((s) => (
+              {sortedRoster.map((s) => (
                 <li key={s.uid}>
                   <button
                     type="button"
@@ -367,6 +494,13 @@ export default function TeacherDashboard({ currentUid, currentDisplayName }: Pro
           )}
           </section>
         </>
+      )}
+
+      {tab === 'summary' && (
+        <EvaluationSummary
+          roster={sortedRoster}
+          onOpenStudent={(student) => setSelected(student)}
+        />
       )}
 
       {tab === 'teachers' && (
@@ -463,6 +597,8 @@ export default function TeacherDashboard({ currentUid, currentDisplayName }: Pro
               </ul>
             )}
           </section>
+
+          <ClassArchiveCard archived={classArchived} />
 
           <AuditLogPanel />
         </>

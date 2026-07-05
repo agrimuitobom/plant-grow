@@ -153,7 +153,9 @@ export type AuditLogEntry = {
     | 'share-revoked'
     | 'first-teacher-claimed'
     | 'teacher-promoted'
-    | 'teacher-demoted';
+    | 'teacher-demoted'
+    | 'class-archived'
+    | 'class-unarchived';
   by: string;
   byName: string | null;
   targetUid?: string;

@@ -45,3 +45,20 @@ jobs:
       - name: Functions build (typecheck)
         run: npm run build
         working-directory: functions
+
+      # E2E: Auth/Firestore/Storage エミュレータ + 実ブラウザで
+      # 「初回登録 → 記録保存 → 一覧反映」のゴールデンパスを検証。
+      # 依存更新 PR (Dependabot) をレビューなしでマージできる根拠はこれ。
+      - name: Install Playwright Chromium
+        run: npx playwright install chromium --with-deps
+
+      - name: E2E golden path
+        run: npm run test:e2e
+
+      - name: Upload Playwright traces on failure
+        if: failure()
+        uses: actions/upload-artifact@v4
+        with:
+          name: playwright-traces
+          path: test-results/
+          retention-days: 7

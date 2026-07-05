@@ -637,6 +637,134 @@ describe('events subcollection', () => {
   });
 });
 
+describe('archived class freeze (classes/{classId}.archived)', () => {
+  const archiveClass = async () => {
+    await env.withSecurityRulesDisabled(async (ctx) => {
+      const fs = ctx.firestore();
+      await setDoc(doc(fs, 'classes', CLASS_ID), {
+        archived: true,
+        archivedBy: 'teacher-1',
+      });
+    });
+  };
+
+  it('any signed-in user can read the class meta doc', async () => {
+    await archiveClass();
+    const fs = asUser('student-a');
+    await assertSucceeds(getDoc(doc(fs, 'classes', CLASS_ID)));
+  });
+
+  it('no client can write the class meta doc (Function only)', async () => {
+    await seedTeacher('teacher-1');
+    const fs = asUser('teacher-1');
+    await assertFails(
+      setDoc(doc(fs, 'classes', CLASS_ID), { archived: true })
+    );
+  });
+
+  it('owner cannot create a record in an archived class but can still read', async () => {
+    await seedStudent('student-a', [{ date: '2026-04-20' }]);
+    await archiveClass();
+    const fs = asUser('student-a');
+    await assertFails(
+      setDoc(
+        doc(fs, 'classes', CLASS_ID, 'students', 'student-a', 'records', '2026-04-21'),
+        { ...VALID_RECORD, date: '2026-04-21' }
+      )
+    );
+    await assertSucceeds(
+      getDoc(doc(fs, 'classes', CLASS_ID, 'students', 'student-a', 'records', '2026-04-20'))
+    );
+  });
+
+  it('owner cannot update an existing record in an archived class', async () => {
+    await seedStudent('student-a', [{ date: '2026-04-20' }]);
+    await archiveClass();
+    const fs = asUser('student-a');
+    await assertFails(
+      setDoc(
+        doc(fs, 'classes', CLASS_ID, 'students', 'student-a', 'records', '2026-04-20'),
+        VALID_RECORD
+      )
+    );
+  });
+
+  it('events cannot be created or deleted in an archived class', async () => {
+    await env.withSecurityRulesDisabled(async (ctx) => {
+      const fs = ctx.firestore();
+      await setDoc(doc(fs, 'classes', CLASS_ID, 'students', 'student-a', 'events', 'e1'), {
+        date: '2026-04-20',
+        type: 'water',
+        createdBy: 'student-a',
+      });
+    });
+    await archiveClass();
+    const fs = asUser('student-a');
+    await assertFails(
+      setDoc(doc(fs, 'classes', CLASS_ID, 'students', 'student-a', 'events', 'e2'), {
+        date: '2026-04-21',
+        type: 'water',
+        createdBy: 'student-a',
+      })
+    );
+    await assertFails(
+      deleteDoc(doc(fs, 'classes', CLASS_ID, 'students', 'student-a', 'events', 'e1'))
+    );
+    // 読み取りは生きている
+    await assertSucceeds(
+      getDoc(doc(fs, 'classes', CLASS_ID, 'students', 'student-a', 'events', 'e1'))
+    );
+  });
+
+  it('teacher cannot comment on records in an archived class', async () => {
+    await seedTeacher('teacher-1');
+    await seedStudent('student-a', [{ date: '2026-04-20' }]);
+    await archiveClass();
+    const fs = asUser('teacher-1');
+    await assertFails(
+      setDoc(
+        doc(
+          fs,
+          'classes',
+          CLASS_ID,
+          'students',
+          'student-a',
+          'records',
+          '2026-04-20',
+          'comments',
+          'c1'
+        ),
+        { text: 'よくできました', createdBy: 'teacher-1', createdByName: 'T先生' }
+      )
+    );
+  });
+
+  it('roster upsert is frozen in an archived class', async () => {
+    await archiveClass();
+    const fs = asUser('student-a');
+    await assertFails(
+      setDoc(doc(fs, 'classes', CLASS_ID, 'students', 'student-a'), {
+        uid: 'student-a',
+        displayName: 'A さん',
+      })
+    );
+  });
+
+  it('writes still work when the class meta doc exists but archived is false', async () => {
+    await env.withSecurityRulesDisabled(async (ctx) => {
+      const fs = ctx.firestore();
+      await setDoc(doc(fs, 'classes', CLASS_ID), { archived: false });
+    });
+    const fs = asUser('student-a');
+    await assertSucceeds(
+      setDoc(
+        doc(fs, 'classes', CLASS_ID, 'students', 'student-a', 'records', '2026-04-20'),
+        VALID_RECORD
+      )
+    );
+  });
+});
+
 describe('parent share snapshots (shares/{token})', () => {
   const seedShare = async (token: string, expiresAt: Date) => {
     await env.withSecurityRulesDisabled(async (ctx) => {
