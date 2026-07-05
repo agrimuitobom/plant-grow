@@ -79,6 +79,9 @@ function buildTimeline(
   return items.sort((a, b) => b.date.localeCompare(a.date));
 }
 
+// 初期表示タイル数。1 年分 (数百枚) を一気に DOM に載せると古い iPad が重くなる。
+const PAGE_SIZE = 24;
+
 export default function PhotoTimeline({ records }: Props) {
   const allOptions = useMemo(() => buildStrainOptions(records), [records]);
   const categories = useMemo(() => uniqueCategories(records), [records]);
@@ -87,6 +90,7 @@ export default function PhotoTimeline({ records }: Props) {
 
   const [categoryFilter, setCategoryFilter] = useState<string>(ALL_CATEGORIES);
   const [selected, setSelected] = useState<{ id: string; category: string } | null>(null);
+  const [visibleCount, setVisibleCount] = useState(PAGE_SIZE);
 
   // 品目フィルタを通した株の選択肢。
   const options = useMemo(
@@ -136,7 +140,10 @@ export default function PhotoTimeline({ records }: Props) {
                   <button
                     key={c}
                     type="button"
-                    onClick={() => setCategoryFilter(c)}
+                    onClick={() => {
+                      setCategoryFilter(c);
+                      setVisibleCount(PAGE_SIZE);
+                    }}
                     className={`rounded-full px-3 py-1 text-xs font-semibold transition ${
                       active
                         ? 'bg-leaf-700 text-white'
@@ -163,7 +170,10 @@ export default function PhotoTimeline({ records }: Props) {
                   <button
                     key={`${o.category}::${o.id}`}
                     type="button"
-                    onClick={() => setSelected({ id: o.id, category: o.category })}
+                    onClick={() => {
+                      setSelected({ id: o.id, category: o.category });
+                      setVisibleCount(PAGE_SIZE);
+                    }}
                     className={`rounded-full px-4 py-2 text-sm font-semibold transition ${
                       active
                         ? 'bg-leaf-500 text-white shadow'
@@ -187,7 +197,7 @@ export default function PhotoTimeline({ records }: Props) {
           </div>
 
           <ol className="mt-6 grid grid-cols-1 gap-4 sm:grid-cols-2 lg:grid-cols-3">
-            {items.map((item) => (
+            {items.slice(0, visibleCount).map((item) => (
               <li
                 key={`${item.date}-${item.photoUrl}`}
                 className="overflow-hidden rounded-2xl bg-white ring-1 ring-slate-100"
@@ -216,6 +226,18 @@ export default function PhotoTimeline({ records }: Props) {
               </li>
             ))}
           </ol>
+
+          {items.length > visibleCount && (
+            <div className="mt-4 text-center print:hidden">
+              <button
+                type="button"
+                onClick={() => setVisibleCount((n) => n + PAGE_SIZE)}
+                className="btn-ghost !min-h-0 !px-4 !py-2 text-sm"
+              >
+                さらに表示 (残り {items.length - visibleCount} 枚)
+              </button>
+            </div>
+          )}
         </>
       )}
     </section>
