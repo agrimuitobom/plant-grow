@@ -4,6 +4,7 @@ import ExportCsvButton from './ExportCsvButton';
 import GrowthChart from './GrowthChart';
 import AuditLogPanel from './AuditLogPanel';
 import ClassArchiveCard from './ClassArchiveCard';
+import EvaluationSummary from './EvaluationSummary';
 import ParentSharePanel from './ParentSharePanel';
 import PasswordResetPanel from './PasswordResetPanel';
 import StorageUsageCard from './StorageUsageCard';
@@ -24,7 +25,7 @@ import type { EventDoc, RecordDoc, RosterEntry, TeacherProfile } from '../types'
 type RosterStatus = 'loading' | 'ready' | 'error';
 type StudentStatus = 'idle' | 'loading' | 'ready' | 'error';
 type TeachersStatus = 'idle' | 'loading' | 'ready' | 'error';
-type Tab = 'students' | 'teachers';
+type Tab = 'students' | 'summary' | 'teachers';
 
 type Props = {
   /** 自分自身を解除させないために必要。 */
@@ -407,6 +408,18 @@ export default function TeacherDashboard({
         </button>
         <button
           type="button"
+          onClick={() => setTab('summary')}
+          className={`rounded-full px-4 py-2 text-sm font-semibold transition ${
+            tab === 'summary'
+              ? 'bg-leaf-500 text-white shadow'
+              : 'bg-slate-100 text-slate-700 hover:bg-slate-200'
+          }`}
+          aria-pressed={tab === 'summary'}
+        >
+          評価サマリー
+        </button>
+        <button
+          type="button"
           onClick={() => setTab('teachers')}
           className={`rounded-full px-4 py-2 text-sm font-semibold transition ${
             tab === 'teachers'
@@ -481,6 +494,13 @@ export default function TeacherDashboard({
           )}
           </section>
         </>
+      )}
+
+      {tab === 'summary' && (
+        <EvaluationSummary
+          roster={sortedRoster}
+          onOpenStudent={(student) => setSelected(student)}
+        />
       )}
 
       {tab === 'teachers' && (
