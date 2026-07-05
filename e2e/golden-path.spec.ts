@@ -35,6 +35,11 @@ test('新規生徒が登録して観察を保存すると一覧とグラフに�
   // ログイン後のヘッダーが出るまで待つ
   await expect(page.getByText('E2E 太郎 さんの観察記録')).toBeVisible({ timeout: 15_000 });
 
+  // 初回ログインでは使い方ツアーが自動表示される → スキップして閉じる
+  await expect(page.getByRole('dialog', { name: 'アプリの使い方' })).toBeVisible();
+  await page.getByRole('button', { name: 'スキップ' }).click();
+  await expect(page.getByRole('dialog', { name: 'アプリの使い方' })).toBeHidden();
+
   // --- 観察記録の入力 (A株: 草丈 12.5cm / 葉 6 枚) ---
   await page.getByPlaceholder('例: 12.5').first().fill('12.5');
   await page.getByPlaceholder('例: 6').first().fill('6');
