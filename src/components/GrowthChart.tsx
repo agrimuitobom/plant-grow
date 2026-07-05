@@ -1,15 +1,5 @@
 import { useEffect, useMemo, useState } from 'react';
-import {
-  CartesianGrid,
-  Legend,
-  Line,
-  LineChart,
-  ReferenceLine,
-  ResponsiveContainer,
-  Tooltip,
-  XAxis,
-  YAxis,
-} from 'recharts';
+import GrowthLineChart from './GrowthLineChart';
 import {
   UNCATEGORIZED,
   dailyAveragesFor,
@@ -195,101 +185,18 @@ export default function GrowthChart({ records, events = [] }: GrowthChartProps) 
         </div>
       )}
 
-      <div className="mt-4 h-80 w-full">
+      <div className="mt-4 w-full">
         {data.length === 0 ? (
-          <div className="flex h-full items-center justify-center text-slate-500">
+          <div className="flex h-80 items-center justify-center text-slate-500">
             この品目のデータはまだありません。
           </div>
         ) : (
-          <ResponsiveContainer>
-            <LineChart data={data} margin={{ top: 8, right: 16, left: 0, bottom: 8 }}>
-              <CartesianGrid strokeDasharray="3 3" stroke="#e2e8f0" />
-              <XAxis dataKey="date" tick={{ fontSize: 12 }} />
-              <YAxis
-                yAxisId="left"
-                tick={{ fontSize: 12 }}
-                label={{ value: '草丈(cm)', angle: -90, position: 'insideLeft', fontSize: 12 }}
-              />
-              <YAxis
-                yAxisId="right"
-                orientation="right"
-                tick={{ fontSize: 12 }}
-                label={{ value: '葉(枚)', angle: 90, position: 'insideRight', fontSize: 12 }}
-              />
-              <Tooltip />
-              <Legend />
-              {/* イベントの縦線オーバーレイ。Line より前に置くと線の下に来て見やすい。 */}
-              {eventMarkers.water.map((date) => (
-                <ReferenceLine
-                  key={`water-${date}`}
-                  yAxisId="left"
-                  x={date}
-                  stroke="#0ea5e9"
-                  strokeDasharray="3 3"
-                  ifOverflow="visible"
-                />
-              ))}
-              {eventMarkers.fertilizer.map((date) => (
-                <ReferenceLine
-                  key={`fert-${date}`}
-                  yAxisId="left"
-                  x={date}
-                  stroke="#16a34a"
-                  strokeDasharray="3 3"
-                  ifOverflow="visible"
-                />
-              ))}
-              <Line
-                yAxisId="left"
-                type="monotone"
-                dataKey="height"
-                name="平均草丈 (cm)"
-                stroke="#3b8f3f"
-                strokeWidth={3}
-                dot={{ r: 5 }}
-                connectNulls
-              />
-              <Line
-                yAxisId="right"
-                type="monotone"
-                dataKey="leafCount"
-                name="平均葉枚数 (枚)"
-                stroke="#8d6e63"
-                strokeWidth={3}
-                dot={{ r: 5 }}
-                connectNulls
-              />
-              {/* クラス平均オーバーレイ: 点線 + 半透明色で「補助情報」として識別しやすく。 */}
-              {showClassAvg && classAvg && (
-                <>
-                  <Line
-                    yAxisId="left"
-                    type="monotone"
-                    dataKey="classHeight"
-                    name="クラス平均 草丈 (cm)"
-                    stroke="#3b8f3f"
-                    strokeOpacity={0.55}
-                    strokeWidth={2}
-                    strokeDasharray="6 4"
-                    dot={false}
-                    connectNulls
-                  />
-                  <Line
-                    yAxisId="right"
-                    type="monotone"
-                    dataKey="classLeafCount"
-                    name="クラス平均 葉枚数 (枚)"
-                    stroke="#8d6e63"
-                    strokeOpacity={0.55}
-                    strokeWidth={2}
-                    strokeDasharray="6 4"
-                    dot={false}
-                    connectNulls
-                  />
-                </>
-              )}
-            </LineChart>
-          </ResponsiveContainer>
+          <GrowthLineChart
+            rows={data}
+            waterDates={eventMarkers.water}
+            fertilizerDates={eventMarkers.fertilizer}
+            showClassAvg={showClassAvg && classAvg !== null}
+          />
         )}
       </div>
 
