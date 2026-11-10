@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { calcAverages, normalizeMeasure, toDateId } from './records';
+import { calcAverages, normalizeMeasure, sameStrains, toDateId } from './records';
 
 describe('normalizeMeasure', () => {
   it('treats the empty string as null — NOT as 0 (Number("") === 0 の罠)', () => {
@@ -65,5 +65,21 @@ describe('toDateId', () => {
 
   it('accepts a date-like string and forwards to the Date constructor', () => {
     expect(toDateId('2026-04-20T12:00:00Z')).toMatch(/^2026-04-(20|21)$/);
+  });
+});
+
+describe('sameStrains', () => {
+  const base = { id: 'A', category: '', name: 'A株', height: 1, leafCount: 2, memo: '', photos: [] };
+
+  it('キー順や旧形式の欠損フィールドが違っても内容が同じなら true', () => {
+    expect(sameStrains([{ memo: '', name: 'A株', id: 'A', leafCount: 2, height: 1 }], [base])).toBe(true);
+  });
+
+  it('測定値・メモ・写真のいずれかが違えば false', () => {
+    expect(sameStrains([base], [{ ...base, height: 1.5 }])).toBe(false);
+    expect(sameStrains([base], [{ ...base, memo: 'x' }])).toBe(false);
+    expect(sameStrains([base], [{ ...base, photos: [{ path: 'p', url: 'u' }] }])).toBe(false);
+    expect(sameStrains([base], [base, base])).toBe(false);
+    expect(sameStrains(undefined, [base])).toBe(false);
   });
 });

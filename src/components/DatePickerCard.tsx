@@ -16,6 +16,16 @@ function yesterdayId(): string {
   return toDateId(d);
 }
 
+/**
+ * "YYYY-MM-DD" を端末ローカルの日付として解釈する。
+ * new Date("2026-04-20") は UTC の 0 時として解釈されるため、UTC より西のタイムゾーンでは
+ * カレンダーの選択日が前日にずれる。
+ */
+function parseDateId(dateId: string): Date {
+  const [y, m, d] = dateId.split('-').map(Number);
+  return new Date(y ?? 1970, (m ?? 1) - 1, d ?? 1);
+}
+
 export default function DatePickerCard({
   value,
   onChange,
@@ -50,7 +60,12 @@ export default function DatePickerCard({
         <input
           type="date"
           value={value}
-          onChange={(e) => onChange(e.target.value)}
+          onChange={(e) => {
+            // 日付欄の「クリア」で空文字が来る。空の日付 ID は Firestore の
+            // ドキュメントパスとして不正で画面ごと落ちるので無視する。
+            if (/^\d{4}-\d{2}-\d{2}$/.test(e.target.value)) onChange(e.target.value);
+          }}
+          aria-label="記録する日付"
           className="!w-auto"
         />
       </div>
@@ -59,7 +74,7 @@ export default function DatePickerCard({
         <Chip label="昨日" target={yesterday} />
       </div>
       <Calendar
-        value={new Date(value)}
+        value={parseDateId(value)}
         onChange={(d) => {
           // react-calendar の onChange は Value (Date | [Date, Date] | null) を返す。
           // 単一選択モードでは Date が来るが、念のため絞り込む。

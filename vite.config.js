@@ -52,6 +52,22 @@ export default defineConfig({
       },
     }),
   ],
+  build: {
+    rollupOptions: {
+      output: {
+        // 変更頻度の低いライブラリを別チャンクに分ける。アプリ本体だけを直したデプロイでは
+        // Firebase SDK などの大きなファイルが端末キャッシュ (SW precache) から再利用され、
+        // 教室の細い回線で毎回 800KB を落とし直さずに済む。
+        manualChunks(id) {
+          if (!id.includes('node_modules')) return undefined;
+          if (id.includes('/firebase/') || id.includes('/@firebase/')) return 'vendor-firebase';
+          if (id.includes('/@sentry')) return 'vendor-sentry';
+          if (/\/(react|react-dom|scheduler)\//.test(id)) return 'vendor-react';
+          return undefined;
+        },
+      },
+    },
+  },
   server: { host: true, port: 5173 },
   // Vitest 設定。vite.config から読まれるので別ファイルにしない。
   // 純粋関数のテストだけなので jsdom は不要 (node 環境で十分)。

@@ -11,6 +11,7 @@ import {
 } from 'firebase/firestore';
 import type { User } from 'firebase/auth';
 import { db, getCurrentClassId } from './firebase';
+import { settleWrite } from './offline';
 import type { EventDoc, EventType } from '../types';
 
 function eventsCol(uid: string) {
@@ -44,17 +45,21 @@ export type AddEventArgs = {
 };
 
 export async function addEvent({ user, dateId, type }: AddEventArgs): Promise<void> {
-  await addDoc(eventsCol(user.uid), {
-    date: dateId,
-    type,
-    createdAt: serverTimestamp(),
-    createdBy: user.uid,
-    createdByName: user.displayName || user.email || user.uid,
-  });
+  // オフライン中は Promise が解決しないので settleWrite で見切る
+  // (待ち続けるとチップが無効のまま戻らない)。画面にはローカルキャッシュ経由で即反映される。
+  await settleWrite(
+    addDoc(eventsCol(user.uid), {
+      date: dateId,
+      type,
+      createdAt: serverTimestamp(),
+      createdBy: user.uid,
+      createdByName: user.displayName || user.email || user.uid,
+    })
+  );
 }
 
 export async function deleteEvent(uid: string, eventId: string): Promise<void> {
-  await deleteDoc(doc(eventsCol(uid), eventId));
+  await settleWrite(deleteDoc(doc(eventsCol(uid), eventId)));
 }
 
 /** date 文字列でグループ化したマップを返す。UI 側で日別表示するためのユーティリティ。 */

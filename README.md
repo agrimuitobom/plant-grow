@@ -2,7 +2,7 @@
 
 学校の授業で、タブレットから複数の株の草丈・葉枚数・写真・観察メモを記録するための Web アプリ。
 PWA としてホーム画面に追加でき、オフラインでも観察記録を続けられます。
-React (Vite + vite-plugin-pwa) + Tailwind CSS + Firebase (Firestore + Storage + メール/パスワード Auth) + Recharts。
+React (Vite + vite-plugin-pwa) + Tailwind CSS + Firebase (Firestore + Storage + メール/パスワード Auth)。グラフは依存なしの自前 SVG。
 
 > **運用担当の先生へ**: 日常の対応 (パスワード再発行・年度更新・トラブル対処・引き継ぎ) は
 > [docs/RUNBOOK.md](docs/RUNBOOK.md) にまとまっています。この README は開発者向けです。

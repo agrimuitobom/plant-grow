@@ -13,6 +13,7 @@ import {
 } from 'firebase/firestore';
 import type { User } from 'firebase/auth';
 import { db, getCurrentClassId } from './firebase';
+import { isOfflineReadError, settleWrite, type WriteOutcome } from './offline';
 import { deleteStrainPhoto } from './storage';
 import type { Averages, RecordDoc, Strain, StrainFormValue } from '../types';
 
@@ -75,9 +76,19 @@ export function toDateId(date: Date | string | number): string {
   return `${y}-${m}-${day}`;
 }
 
+/**
+ * 1 日分のレコードを取得する。
+ * オフラインでキャッシュにも無い doc を getDoc すると 'unavailable' で reject されるが、
+ * それは「まだ記録の無い日をオフラインで開いた」だけなので null (= 新規) として扱う。
+ */
 export async function fetchRecord(uid: string, dateId: string): Promise<RecordDoc | null> {
-  const snap = await getDoc(recordDoc(uid, dateId));
-  return snap.exists() ? (snap.data() as RecordDoc) : null;
+  try {
+    const snap = await getDoc(recordDoc(uid, dateId));
+    return snap.exists() ? (snap.data() as RecordDoc) : null;
+  } catch (e) {
+    if (isOfflineReadError(e)) return null;
+    throw e;
+  }
 }
 
 export async function fetchAllRecords(uid: string): Promise<RecordDoc[]> {
@@ -147,18 +158,47 @@ export type SaveRecordArgs = {
   user: Pick<User, 'uid' | 'displayName' | 'email'>;
   dateId: string;
   strains: StrainFormValue[];
+  /** 端末に保留した書き込みが、後からサーバに拒否された時に呼ばれる。 */
+  onSyncError?: (err: unknown) => void;
 };
 
 export type SaveRecordResult = {
   date: string;
   strains: Strain[];
   averages: Averages;
+  /** 'synced' = サーバ保存済み / 'queued' = 端末に保留中 (オンライン復帰後に自動同期)。 */
+  outcome: WriteOutcome;
 };
+
+/**
+ * 履歴スナップショットを残す価値があるか (株データが実際に変わったか) の判定用。
+ * Firestore から読んだ map はキー順が保証されないので、JSON 文字列ではなく項目ごとに比べる。
+ */
+export function sameStrains(a: readonly Strain[] | undefined, b: readonly Strain[]): boolean {
+  const list = a ?? [];
+  if (list.length !== b.length) return false;
+  return list.every((x, i) => {
+    const y = b[i]!;
+    const px = photoPathsOf([x]);
+    const py = photoPathsOf([y]);
+    return (
+      x.id === y.id &&
+      (x.category ?? '') === (y.category ?? '') &&
+      x.name === y.name &&
+      (x.height ?? null) === (y.height ?? null) &&
+      (x.leafCount ?? null) === (y.leafCount ?? null) &&
+      (x.memo ?? '') === (y.memo ?? '') &&
+      px.length === py.length &&
+      px.every((p, j) => p === py[j])
+    );
+  });
+}
 
 export async function saveRecord({
   user,
   dateId,
   strains,
+  onSyncError,
 }: SaveRecordArgs): Promise<SaveRecordResult> {
   const cleanStrains: Strain[] = strains.map((s) => ({
     id: s.id,
@@ -178,28 +218,27 @@ export async function saveRecord({
   const displayName = user.displayName || user.email || user.uid;
 
   // runTransaction はオフライン時に失敗するため使えない。
-  // 永続キャッシュ越しの getDoc + setDoc(merge) で代替する。
-  // - getDoc: オフライン時はローカルキャッシュにフォールバック
-  // - setDoc: オフライン時は writePendingQueue に積まれ、復帰後に同期される
+  // 永続キャッシュ越しの読み取り + setDoc(merge) で代替する。
+  // - fetchRecord: オフライン時はローカルキャッシュにフォールバック (無ければ新規扱い)
+  // - setDoc: オフライン時は writePendingQueue に積まれ、復帰後に同期される。
+  //   Promise はサーバ受理まで解決しないので、await せず settleWrite で見切る
+  //   (素直に await するとオフライン中は「保存中…」のまま固まる)。
   // - createdAt / createdBy は新規作成判定の時だけ含める
-  const snap = await getDoc(ref);
-  const previousPaths = snap.exists()
-    ? photoPathsOf((snap.data() as RecordDoc).strains)
-    : [];
+  const prev = await fetchRecord(user.uid, dateId);
+  const previousPaths = prev ? photoPathsOf(prev.strains) : [];
 
   // 上書き保存の前に直前バージョンを history サブコレクションに残す。
   // doc id は ISO タイムスタンプ (辞書順 = 時系列) にする。
-  if (snap.exists()) {
-    const prev = snap.data() as RecordDoc;
+  // 株データが変わっていない再保存では履歴を増やさない (履歴一覧が同じ内容で埋まるため)。
+  if (prev && !sameStrains(prev.strains, cleanStrains)) {
     const historyId = new Date().toISOString().replace(/[:.]/g, '-');
-    await setDoc(doc(collection(ref, 'history'), historyId), {
+    // 履歴は補助情報なので、失敗しても待たされても本体保存は止めない。
+    void setDoc(doc(collection(ref, 'history'), historyId), {
       ...prev,
       snapshotAt: serverTimestamp(),
       snapshotBy: user.uid,
       snapshotByName: displayName,
-    }).catch(() => {
-      // 履歴は補助情報なので失敗しても本体保存は止めない。
-    });
+    }).catch(() => {});
   }
 
   const payload: Record<string, unknown> = {
@@ -211,15 +250,17 @@ export async function saveRecord({
     updatedByName: displayName,
     createdBy: user.uid, // 既存値が違うと Rules で弾かれるので、新規/更新どちらでも一致を強制
   };
-  if (!snap.exists()) {
+  if (!prev) {
     payload.createdAt = serverTimestamp();
     payload.createdByName = displayName;
   }
-  await setDoc(ref, payload, { merge: true });
+  const outcome = await settleWrite(setDoc(ref, payload, { merge: true }), {
+    onLateError: onSyncError,
+  });
 
   // 名簿を upsert。教員ダッシュボードで生徒一覧を作るのに使う。
-  // 失敗しても記録自体は保存できているので、ここの失敗は握りつぶす。
-  await setDoc(
+  // 失敗しても記録自体は保存できているので、ここの失敗は握りつぶす (待ちもしない)。
+  void setDoc(
     rosterDoc(user.uid),
     {
       uid: user.uid,
@@ -232,9 +273,11 @@ export async function saveRecord({
 
   // 参照されなくなった写真は削除して Storage を肥大化させない。
   // Storage はオフラインキューを持たないので、ここはネットがある時しか動かない。失敗は許容。
+  // 保存の完了を写真削除の通信で待たせない (fire-and-forget)。
   const keptPaths = new Set(photoPathsOf(cleanStrains));
-  const orphans = previousPaths.filter((p) => !keptPaths.has(p));
-  await Promise.all(orphans.map((p) => deleteStrainPhoto(p).catch(() => {})));
+  for (const p of previousPaths) {
+    if (!keptPaths.has(p)) void deleteStrainPhoto(p).catch(() => {});
+  }
 
-  return { date: dateId, strains: cleanStrains, averages };
+  return { date: dateId, strains: cleanStrains, averages, outcome };
 }

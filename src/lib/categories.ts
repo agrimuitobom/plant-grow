@@ -1,5 +1,6 @@
 import { getDoc, setDoc } from 'firebase/firestore';
 import type { User } from 'firebase/auth';
+import { isOfflineReadError, settleWrite } from './offline';
 import { rosterDoc } from './records';
 import { calcAverages } from './records';
 import type { Averages, RecordDoc, RosterEntry, Strain } from '../types';
@@ -50,10 +51,15 @@ export function sanitizeCategories(items: readonly string[]): string[] {
 
 /** 登録済み品目リストを Firestore から取得。未保存なら空配列。 */
 export async function fetchRegisteredCategories(uid: string): Promise<string[]> {
-  const snap = await getDoc(rosterDoc(uid));
-  if (!snap.exists()) return [];
-  const data = snap.data() as RosterEntry;
-  return Array.isArray(data.categories) ? sanitizeCategories(data.categories) : [];
+  try {
+    const snap = await getDoc(rosterDoc(uid));
+    if (!snap.exists()) return [];
+    const data = snap.data() as RosterEntry;
+    return Array.isArray(data.categories) ? sanitizeCategories(data.categories) : [];
+  } catch (e) {
+    if (isOfflineReadError(e)) return [];
+    throw e;
+  }
 }
 
 /**
@@ -66,15 +72,18 @@ export async function saveRegisteredCategories(
   items: readonly string[]
 ): Promise<string[]> {
   const cleaned = sanitizeCategories(items);
-  await setDoc(
-    rosterDoc(user.uid),
-    {
-      uid: user.uid,
-      displayName: user.displayName || user.email || user.uid,
-      email: user.email ?? '',
-      categories: cleaned,
-    },
-    { merge: true }
+  // オフラインでも品目追加で固まらないよう、サーバ応答は settleWrite で見切る。
+  await settleWrite(
+    setDoc(
+      rosterDoc(user.uid),
+      {
+        uid: user.uid,
+        displayName: user.displayName || user.email || user.uid,
+        email: user.email ?? '',
+        categories: cleaned,
+      },
+      { merge: true }
+    )
   );
   return cleaned;
 }
