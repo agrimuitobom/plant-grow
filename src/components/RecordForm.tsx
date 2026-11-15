@@ -1,24 +1,34 @@
-import { useEffect, useMemo, useState } from 'react';
+import { useEffect, useMemo, useRef, useState } from 'react';
 import type { User } from 'firebase/auth';
 import HistoryPanel from './HistoryPanel';
 import StrainRow from './StrainRow';
 import { formatAuditCaption } from '../lib/audit';
 import { UNCATEGORIZED, calcAveragesByCategory } from '../lib/categories';
 import { calcAverages, fetchRecord, saveRecord, type SaveRecordResult } from '../lib/records';
-import { getStrainPhotos } from '../lib/strain';
+import {
+  defaultFormStrains,
+  emptyFormStrain,
+  nextStrainId,
+  sameFormStrains,
+  templateStrainsFor,
+  toFormStrains,
+} from '../lib/strain';
 import type { RecordDoc, Strain, StrainFormValue } from '../types';
 
-const emptyStrain = (index: number): StrainFormValue => ({
-  id: String.fromCharCode(65 + index),
-  category: '',
-  name: `${String.fromCharCode(65 + index)}株`,
-  height: '',
-  leafCount: '',
-  memo: '',
-  photos: [],
-});
+// Firestore Rules (isValidRecord) の上限と揃える。超えると保存が拒否される。
+const MAX_STRAINS = 50;
 
-const DEFAULT_STRAINS: StrainFormValue[] = [emptyStrain(0), emptyStrain(1), emptyStrain(2)];
+// Firestore / Storage のエラーを生徒に分かる日本語にする。
+function describeSaveError(err: unknown): string {
+  const code = (err as { code?: string } | null)?.code;
+  if (code === 'permission-denied') {
+    return '保存する権限がありません。ログインし直すか、先生に確認してください。';
+  }
+  if (code === 'unavailable') {
+    return 'ネットワークに繋がりません。Wi-Fi を確認してからもう一度お試しください。';
+  }
+  return err instanceof Error ? err.message : String(err);
+}
 
 type FormStatus = 'idle' | 'loading' | 'saving' | 'saved' | 'error';
 
@@ -32,6 +42,10 @@ type RecordFormProps = {
   onAddCategory?: (name: string) => void | Promise<void>;
   /** 「前回の値を入れる」検索用。指定日より前の最新レコードを採用する。 */
   records?: RecordDoc[];
+  /** 未保存の変更があるかどうかが変わった時に通知する (日付切替の確認に使う)。 */
+  onDirtyChange?: (dirty: boolean) => void;
+  /** 端末に保留した保存が、後からサーバに拒否された時に通知する。 */
+  onSyncError?: (err: unknown) => void;
 };
 
 export default function RecordForm({
@@ -41,8 +55,14 @@ export default function RecordForm({
   registeredCategories = [],
   onAddCategory,
   records = [],
+  onDirtyChange,
+  onSyncError,
 }: RecordFormProps) {
-  const [strains, setStrains] = useState<StrainFormValue[]>(DEFAULT_STRAINS);
+  const [strains, setStrains] = useState<StrainFormValue[]>(defaultFormStrains);
+  // 読み込み直後 / 保存直後のフォーム内容。strains と違えば「未保存の変更あり」。
+  const [baseline, setBaseline] = useState<StrainFormValue[]>(strains);
+  // この日付に保存済みレコードがあるか。無い日は直近の記録から株構成を引き継ぐ。
+  const [hasSavedRecord, setHasSavedRecord] = useState(false);
   const [status, setStatus] = useState<FormStatus>('idle');
   const [error, setError] = useState<string | null>(null);
   const [uploadingCount, setUploadingCount] = useState(0);
@@ -50,26 +70,28 @@ export default function RecordForm({
   // 既存レコードを開いた時にタイトル横に「最終更新: ...」バッジを出すためのキャプション。
   // 新規日付や読込前は空文字。
   const [auditCaption, setAuditCaption] = useState('');
+  // 日付切替時の fetch 完了時点で最新の records を参照するための ref
+  // (records を effect の依存に入れると、保存のたびにフォームが再読込されてしまう)。
+  const recordsRef = useRef(records);
+  recordsRef.current = records;
+  const savedTimerRef = useRef<ReturnType<typeof setTimeout>>();
+
+  const resetForm = (next: StrainFormValue[]) => {
+    setStrains(next);
+    setBaseline(next);
+  };
 
   useEffect(() => {
     let cancelled = false;
     setStatus('loading');
+    setError(null);
     setAuditCaption('');
     fetchRecord(user.uid, dateId)
       .then((record) => {
         if (cancelled) return;
         if (record?.strains?.length) {
-          setStrains(
-            record.strains.map((s) => ({
-              id: s.id,
-              category: s.category ?? '',
-              name: s.name ?? s.id,
-              height: s.height ?? '',
-              leafCount: s.leafCount ?? '',
-              memo: s.memo ?? '',
-              photos: getStrainPhotos(s),
-            }))
-          );
+          resetForm(toFormStrains(record.strains));
+          setHasSavedRecord(true);
           setAuditCaption(
             formatAuditCaption({
               name: record.updatedByName,
@@ -77,7 +99,9 @@ export default function RecordForm({
             })
           );
         } else {
-          setStrains(DEFAULT_STRAINS);
+          // 記録の無い日: 直近の記録の株構成 (株名・品目) を引き継いだ空フォームにする。
+          resetForm(templateStrainsFor(recordsRef.current, dateId));
+          setHasSavedRecord(false);
         }
         setStatus('idle');
       })
@@ -90,6 +114,42 @@ export default function RecordForm({
       cancelled = true;
     };
   }, [user.uid, dateId]);
+
+  const dirty = status !== 'loading' && !sameFormStrains(strains, baseline);
+
+  // 起動直後は records の購読結果がフォームの読込より後に届くことがある。
+  // まだ何も入力していない新規日なら、届いた記録から株構成を引き継ぎ直す。
+  useEffect(() => {
+    if (status !== 'idle' || hasSavedRecord || dirty) return;
+    const template = templateStrainsFor(records, dateId);
+    if (!sameFormStrains(template, baseline)) resetForm(template);
+  }, [records, dateId, status, hasSavedRecord, dirty, baseline]);
+
+  useEffect(() => {
+    onDirtyChange?.(dirty);
+  }, [dirty, onDirtyChange]);
+  // アンマウント時 (ログアウト・教員ビュー切替) は未保存状態を解除しておく。
+  useEffect(() => () => onDirtyChange?.(false), [onDirtyChange]);
+
+  // 未保存の入力があるままタブを閉じる / リロードしようとしたらブラウザの確認を出す。
+  useEffect(() => {
+    if (!dirty) return undefined;
+    const warn = (e: BeforeUnloadEvent) => {
+      e.preventDefault();
+      e.returnValue = '';
+    };
+    window.addEventListener('beforeunload', warn);
+    return () => window.removeEventListener('beforeunload', warn);
+  }, [dirty]);
+
+  useEffect(() => () => clearTimeout(savedTimerRef.current), []);
+
+  // 保存済みレコードが参照している写真。フォーム上で外しても、保存するまで
+  // Storage からは消さない (保存せずに離れると記録に壊れた画像が残るため)。
+  const savedPhotoPaths = useMemo(
+    () => new Set(baseline.flatMap((s) => s.photos.map((p) => p.path))),
+    [baseline]
+  );
 
   const handleUploadingChange = (isUploading: boolean) => {
     setUploadingCount((n) => Math.max(0, n + (isUploading ? 1 : -1)));
@@ -120,7 +180,11 @@ export default function RecordForm({
     (categoryKeys.length === 1 && categoryKeys[0] !== UNCATEGORIZED);
 
   const addStrain = () => {
-    setStrains((prev) => [...prev, emptyStrain(prev.length)]);
+    setStrains((prev) =>
+      prev.length >= MAX_STRAINS
+        ? prev
+        : [...prev, emptyFormStrain(nextStrainId(prev.map((s) => s.id)))]
+    );
   };
 
   const removeStrain = (index: number) => {
@@ -161,31 +225,32 @@ export default function RecordForm({
     setStatus('saving');
     setError(null);
     try {
-      const saved = await saveRecord({ user, dateId, strains });
+      const submitted = strains;
+      const saved = await saveRecord({ user, dateId, strains: submitted, onSyncError });
+      // 保存した内容を新しい基準にする (= 未保存マークが消える)。
+      // 保存待ちの間にさらに編集されていた場合は、その入力を消さずに未保存のまま残す。
+      const savedForm = toFormStrains(saved.strains);
+      setBaseline(savedForm);
+      setStrains((cur) => (cur === submitted ? savedForm : cur));
+      setHasSavedRecord(true);
       setStatus('saved');
       onSaved?.(saved);
       // 保存に成功したら履歴一覧をリフレッシュさせる (新しい snapshot が積まれているはず)。
       setHistoryRefreshKey((k) => k + 1);
-      setTimeout(() => setStatus('idle'), 1500);
+      clearTimeout(savedTimerRef.current);
+      savedTimerRef.current = setTimeout(
+        () => setStatus((cur) => (cur === 'saved' ? 'idle' : cur)),
+        1500
+      );
     } catch (err: unknown) {
-      setError(err instanceof Error ? err.message : String(err));
+      setError(describeSaveError(err));
       setStatus('error');
     }
   };
 
   // 履歴から復元する: Firestore はまだ書き換えず、フォームに値を流し込むだけ。
   const handleRestore = (snap: Strain[]) => {
-    setStrains(
-      snap.map((s) => ({
-        id: s.id,
-        category: s.category ?? '',
-        name: s.name ?? s.id,
-        height: s.height ?? '',
-        leafCount: s.leafCount ?? '',
-        memo: s.memo ?? '',
-        photos: getStrainPhotos(s),
-      }))
-    );
+    setStrains(toFormStrains(snap));
   };
 
   return (
@@ -224,6 +289,14 @@ export default function RecordForm({
           <span className="text-sm text-slate-500">
             株数 {strains.length} / 未入力欄は平均計算から除外されます
           </span>
+          {dirty && (
+            <span
+              role="status"
+              className="rounded-full bg-amber-100 px-2 py-0.5 text-xs font-semibold text-amber-800"
+            >
+              ● 未保存の変更があります
+            </span>
+          )}
         </div>
       </header>
 
@@ -238,6 +311,7 @@ export default function RecordForm({
             onRemove={() => removeStrain(i)}
             canRemove={strains.length > 1}
             onUploadingChange={handleUploadingChange}
+            isSavedPhoto={(path) => savedPhotoPaths.has(path)}
             registeredCategories={registeredCategories}
             onAddCategory={onAddCategory}
           />
@@ -245,13 +319,21 @@ export default function RecordForm({
       </div>
 
       <div className="flex flex-wrap gap-3">
-        <button type="button" onClick={addStrain} className="btn-secondary">
+        <button
+          type="button"
+          onClick={addStrain}
+          className="btn-secondary disabled:opacity-40"
+          disabled={strains.length >= MAX_STRAINS}
+          title={
+            strains.length >= MAX_STRAINS ? `1 日に記録できる株は ${MAX_STRAINS} 個までです` : undefined
+          }
+        >
           ＋ 株を追加
         </button>
         <button
           type="submit"
           className="btn-primary flex-1"
-          disabled={status === 'saving' || uploadingCount > 0}
+          disabled={status === 'loading' || status === 'saving' || uploadingCount > 0}
           aria-busy={status === 'saving' || uploadingCount > 0}
         >
           {uploadingCount > 0

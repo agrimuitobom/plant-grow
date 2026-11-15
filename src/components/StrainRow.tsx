@@ -1,4 +1,4 @@
-import { useState } from 'react';
+import { useId, useState } from 'react';
 import { deleteStrainPhoto, uploadStrainPhoto } from '../lib/storage';
 import { validateHeight, validateLeafCount } from '../lib/validation';
 import type { StrainFormValue } from '../types';
@@ -18,6 +18,11 @@ type StrainRowProps = {
    * 未指定ならフォールバック用のテキスト入力に切り替わる。
    */
   onAddCategory?: (name: string) => void | Promise<void>;
+  /**
+   * 保存済みレコードが参照している写真かどうか。true の写真はフォームから外しても
+   * Storage からは即削除しない (保存時に saveRecord がまとめて掃除する)。
+   */
+  isSavedPhoto?: (path: string) => boolean;
 };
 
 type PhotoStatus = 'idle' | 'uploading';
@@ -34,7 +39,10 @@ export default function StrainRow({
   onUploadingChange,
   registeredCategories = [],
   onAddCategory,
+  isSavedPhoto,
 }: StrainRowProps) {
+  // ラベルと入力欄を結び付ける id。株 id は重複しうるので useId で行ごとに一意にする。
+  const fieldId = useId();
   const [adding, setAdding] = useState(false);
   const [newCategoryDraft, setNewCategoryDraft] = useState('');
   // 既存レコードに登録外の品目が入っていても表示できるよう、現在値が未登録なら下部に option 追加。
@@ -122,7 +130,10 @@ export default function StrainRow({
   const handleRemovePhoto = (path: string) => {
     const existing = Array.isArray(strain.photos) ? strain.photos : [];
     onChange({ ...strain, photos: existing.filter((p) => p.path !== path) });
-    deleteStrainPhoto(path).catch(() => {});
+    // 今回アップロードしただけの (まだどの記録にも載っていない) 写真はすぐ消してよい。
+    // 保存済みの写真は「保存する」が押されるまで残す — 先に消すと、保存せずに
+    // 画面を離れた時に記録が存在しない画像を指したままになる。
+    if (!isSavedPhoto?.(path)) deleteStrainPhoto(path).catch(() => {});
   };
 
   const memoLength = (strain.memo ?? '').length;
@@ -131,11 +142,14 @@ export default function StrainRow({
     <div className="card flex flex-col gap-4">
       <div className="flex flex-col gap-4 lg:flex-row lg:items-end">
         <div className="lg:w-32">
-          <label className="block text-sm font-medium text-slate-500">品目</label>
+          <label htmlFor={`${fieldId}-category`} className="block text-sm font-medium text-slate-500">
+            品目
+          </label>
           {adding ? (
             <div className="mt-1 flex gap-1">
               <input
                 type="text"
+                id={`${fieldId}-category`}
                 autoFocus
                 value={newCategoryDraft}
                 onChange={(e) => setNewCategoryDraft(e.target.value)}
@@ -161,6 +175,7 @@ export default function StrainRow({
             </div>
           ) : (
             <select
+              id={`${fieldId}-category`}
               value={strain.category}
               onChange={(e) => handleCategorySelect(e.target.value)}
               className="mt-1 w-full rounded-xl border-2 border-slate-200 bg-white px-3 py-3 text-tap focus:border-leaf-500 focus:outline-none"
@@ -182,8 +197,11 @@ export default function StrainRow({
         </div>
 
         <div className="lg:w-28">
-          <label className="block text-sm font-medium text-slate-500">株名</label>
+          <label htmlFor={`${fieldId}-name`} className="block text-sm font-medium text-slate-500">
+            株名
+          </label>
           <input
+            id={`${fieldId}-name`}
             type="text"
             inputMode="text"
             value={strain.name}
@@ -193,7 +211,9 @@ export default function StrainRow({
         </div>
 
         <div className="flex-1">
-          <label className="block text-sm font-medium text-slate-500">草丈 (cm)</label>
+          <label htmlFor={`${fieldId}-height`} className="block text-sm font-medium text-slate-500">
+            草丈 (cm)
+          </label>
           <div className="mt-1 flex items-stretch gap-1">
             <button
               type="button"
@@ -205,6 +225,7 @@ export default function StrainRow({
             </button>
             <div className="flex-1">
               <input
+                id={`${fieldId}-height`}
                 type="number"
                 inputMode="decimal"
                 step="0.1"
@@ -232,7 +253,9 @@ export default function StrainRow({
         </div>
 
         <div className="flex-1">
-          <label className="block text-sm font-medium text-slate-500">葉枚数 (枚)</label>
+          <label htmlFor={`${fieldId}-leaf`} className="block text-sm font-medium text-slate-500">
+            葉枚数 (枚)
+          </label>
           <div className="mt-1 flex items-stretch gap-1">
             <button
               type="button"
@@ -244,6 +267,7 @@ export default function StrainRow({
             </button>
             <div className="flex-1">
               <input
+                id={`${fieldId}-leaf`}
                 type="number"
                 inputMode="numeric"
                 step="1"
@@ -271,9 +295,9 @@ export default function StrainRow({
         </div>
 
         <div className="lg:w-40">
-          <label className="block text-sm font-medium text-slate-500">
+          <span className="block text-sm font-medium text-slate-500">
             写真 ({(strain.photos ?? []).length} 枚)
-          </label>
+          </span>
           <div className="mt-1 flex flex-wrap gap-2">
             {(strain.photos ?? []).map((photo) => (
               <div key={photo.path} className="relative">
@@ -311,6 +335,7 @@ export default function StrainRow({
               <input
                 type="file"
                 accept="image/*"
+                aria-label={`${strain.name}の写真を追加`}
                 className="hidden"
                 onChange={handlePickPhoto}
                 disabled={photoStatus === 'uploading'}
@@ -339,14 +364,14 @@ export default function StrainRow({
         <div className="flex items-baseline justify-between">
           <label
             className="block text-sm font-medium text-slate-500"
-            htmlFor={`memo-${strain.id}`}
+            htmlFor={`${fieldId}-memo`}
           >
             観察メモ
           </label>
           <span className="text-xs text-slate-500">{memoLength}/1000</span>
         </div>
         <textarea
-          id={`memo-${strain.id}`}
+          id={`${fieldId}-memo`}
           rows={2}
           maxLength={1000}
           value={strain.memo ?? ''}

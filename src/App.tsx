@@ -1,5 +1,6 @@
-import { Suspense, lazy, useCallback, useEffect, useMemo, useState } from 'react';
+import { Suspense, useCallback, useEffect, useMemo, useState, type ReactNode } from 'react';
 import type { User } from 'firebase/auth';
+import CardBoundary from './components/CardBoundary';
 import CategoryManager from './components/CategoryManager';
 import DatePickerCard from './components/DatePickerCard';
 import ExportCsvButton from './components/ExportCsvButton';
@@ -10,16 +11,24 @@ import RecordsList from './components/RecordsList';
 import SignInScreen from './components/SignInScreen';
 import Toast from './components/Toast';
 
-// バンドル分割: 初期表示には不要な重い依存 (Recharts や CommentBoard の
-// Firestore クエリ) を Lazy 化してフォーム表示までを軽くする。
-const GrowthChart = lazy(() => import('./components/GrowthChart'));
-const PhotoTimeline = lazy(() => import('./components/PhotoTimeline'));
-const CommentBoard = lazy(() => import('./components/CommentBoard'));
-const EventLog = lazy(() => import('./components/EventLog'));
-const TeacherDashboard = lazy(() => import('./components/TeacherDashboard'));
+// バンドル分割: 初期表示には不要なカード (グラフや CommentBoard の Firestore クエリ) を
+// Lazy 化してフォーム表示までを軽くする。読み込み失敗は 1 回では諦めず再試行する。
+const GrowthChart = lazyWithRetry(() => import('./components/GrowthChart'));
+const PhotoTimeline = lazyWithRetry(() => import('./components/PhotoTimeline'));
+const CommentBoard = lazyWithRetry(() => import('./components/CommentBoard'));
+const EventLog = lazyWithRetry(() => import('./components/EventLog'));
+const TeacherDashboard = lazyWithRetry(() => import('./components/TeacherDashboard'));
 
-const CardFallback = ({ label }: { label: string }) => (
-  <div className="card text-slate-400">{label} を読み込み中…</div>
+/**
+ * 遅延読み込みカードの共通ラッパ。読み込み中はプレースホルダを出し、
+ * 読み込みや描画に失敗してもそのカードだけの案内表示に留める (入力フォームを巻き込まない)。
+ */
+const LazyCard = ({ label, children }: { label: string; children: ReactNode }) => (
+  <CardBoundary label={label}>
+    <Suspense fallback={<div className="card text-slate-400">{label} を読み込み中…</div>}>
+      {children}
+    </Suspense>
+  </CardBoundary>
 );
 import {
   categorySuggestions,
@@ -36,6 +45,7 @@ import {
   subscribeToAuth,
 } from './lib/firebase';
 import { classHasNoTeachers } from './lib/firstTeacher';
+import { lazyWithRetry } from './lib/lazyRetry';
 import { printPortfolio } from './lib/print';
 import {
   rosterDoc,
@@ -256,6 +266,36 @@ export default function App() {
     [registeredCategories, persistCategories]
   );
 
+  // 入力フォームに未保存の変更があるか。日付を切り替える前の確認に使う。
+  const [formDirty, setFormDirty] = useState(false);
+  const dismissToast = useCallback(() => setToast(null), []);
+
+  // 日付切替: 未保存の入力を黙って捨てない。
+  const changeDate = useCallback(
+    (next: string) => {
+      if (next === selectedDate) return;
+      if (
+        formDirty &&
+        !window.confirm(
+          `${selectedDate} の入力がまだ保存されていません。\n保存せずに ${next} へ移動しますか?`
+        )
+      ) {
+        return;
+      }
+      setSelectedDate(next);
+    },
+    [formDirty, selectedDate]
+  );
+
+  // 端末に保留していた保存が、同期時にサーバから拒否された (アーカイブ済み等)。
+  const handleSyncError = useCallback(() => {
+    setToast({
+      tone: 'error',
+      message: '保存を同期できませんでした。通信状態を確認して、もう一度保存してください。',
+      duration: 8000,
+    });
+  }, []);
+
   const handleSaved = (saved: SaveRecordResult) => {
     // records 配列は subscribeToRecords が Firestore のローカルキャッシュ書き込みを
     // 受けて自動更新するので、ここで手動 setRecords する必要はない (二重描画になるだけ)。
@@ -265,8 +305,9 @@ export default function App() {
     }
     setToast({
       tone: 'success',
-      message: navigator.onLine
-        ? `${saved.date} の記録を保存しました ✓`
+      message:
+        saved.outcome === 'synced'
+          ? `${saved.date} の記録を保存しました ✓`
         : `${saved.date} の記録を端末に保存しました（オンライン復帰時に自動同期）`,
     });
   };
@@ -392,13 +433,13 @@ export default function App() {
         )}
 
         {showTeacherView ? (
-          <Suspense fallback={<CardFallback label="教員ダッシュボード" />}>
+          <LazyCard label="教員ダッシュボード">
             <TeacherDashboard
               currentUid={user.uid}
               currentDisplayName={user.displayName || user.email || user.uid}
               classArchived={classArchived}
             />
-          </Suspense>
+          </LazyCard>
         ) : (
           <>
             {/* 印刷時のみ表示する見出し: 生徒名と観察期間 */}
@@ -435,7 +476,7 @@ export default function App() {
               <div className="print:hidden">
                 <DatePickerCard
                   value={selectedDate}
-                  onChange={setSelectedDate}
+                  onChange={changeDate}
                   recordedDates={records.map((r) => r.date)}
                 />
               </div>
@@ -460,11 +501,13 @@ export default function App() {
                   registeredCategories={registeredCategories}
                   onAddCategory={handleAddCategoryFromRow}
                   records={records}
+                  onDirtyChange={setFormDirty}
+                  onSyncError={handleSyncError}
                 />
               </div>
             )}
 
-            <Suspense fallback={<CardFallback label="観察イベント" />}>
+            <LazyCard label="観察イベント">
               <EventLog
                 studentUid={user.uid}
                 dateId={selectedDate}
@@ -473,7 +516,7 @@ export default function App() {
                 // 「直近 14 日」の読み取り専用ダイジェスト表示になる。
                 poster={classArchived ? undefined : user}
               />
-            </Suspense>
+            </LazyCard>
 
             <div className="flex justify-end gap-2 print:hidden">
               <ExportCsvButton
@@ -491,22 +534,22 @@ export default function App() {
               </button>
             </div>
 
-            <Suspense fallback={<CardFallback label="グラフ" />}>
+            <LazyCard label="グラフ">
               <GrowthChart records={records} events={events} />
-            </Suspense>
+            </LazyCard>
 
             <RecordsList
               records={records}
               selectedDate={selectedDate}
-              onSelectDate={setSelectedDate}
+              onSelectDate={classArchived ? undefined : changeDate}
             />
 
-            <Suspense fallback={<CardFallback label="写真アルバム" />}>
+            <LazyCard label="写真アルバム">
               <PhotoTimeline records={records} />
-            </Suspense>
+            </LazyCard>
 
             {records.length > 0 && (
-              <Suspense fallback={<CardFallback label="コメント" />}>
+              <LazyCard label="コメント">
                 <CommentBoard
                   studentUid={user.uid}
                   records={records}
@@ -516,7 +559,7 @@ export default function App() {
                   }}
                   onUnreadCountChange={setUnreadComments}
                 />
-              </Suspense>
+              </LazyCard>
             )}
           </>
         )}
@@ -564,7 +607,7 @@ export default function App() {
       )}
 
       <div className="print:hidden">
-        <Toast toast={toast} onDismiss={() => setToast(null)} />
+        <Toast toast={toast} onDismiss={dismissToast} />
       </div>
     </div>
   );
