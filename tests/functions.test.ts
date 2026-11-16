@@ -218,7 +218,27 @@ describe('getClassAverages', () => {
     ]);
   });
 
-  it('クラス外の人には返さない', async () => {
+  it('直後の再集計はサーバ側のキャッシュを返す (全記録を読み直さない)', async () => {
+    const first = await call('getClassAverages', { classId: CLASS_ID }, student);
+    // キャッシュが効いていれば、記録を足しても 10 分間は同じ結果・同じ計算時刻が返る
+    await admin((fs) =>
+      setDoc(doc(fs, 'classes', CLASS_ID, 'students', student.uid, 'records', '2026-04-22'), {
+        date: '2026-04-22',
+        strains: [{ id: 'A', name: 'A株', height: 99, leafCount: 9, memo: '', photos: [] }],
+        averages: { height: 99, leafCount: 9 },
+        createdBy: student.uid,
+        updatedBy: student.uid,
+        updatedByName: 'student',
+      })
+    );
+    const second = await call('getClassAverages', { classId: CLASS_ID }, teacher);
+    expect(first.ok && second.ok).toBe(true);
+    if (!first.ok || !second.ok) return;
+    expect(second.result.computedAt).toBe(first.result.computedAt);
+    expect(second.result.averages).toEqual(first.result.averages);
+  });
+
+  it('クラス外の人には返さない (キャッシュがあっても)', async () => {
     const res = await call('getClassAverages', { classId: CLASS_ID }, outsider);
     expect(res).toEqual({ ok: false, status: 'PERMISSION_DENIED' });
   });
@@ -238,7 +258,7 @@ describe('保護者共有 (createParentShare / revokeParentShare)', () => {
 
     const share = await admin(async (fs) => (await getDoc(doc(fs, 'shares', token))).data());
     expect(share?.studentUid).toBe(student.uid);
-    expect((share?.records as unknown[]).length).toBe(2);
+    expect((share?.records as unknown[]).length).toBe(3);
 
     expect((await call('revokeParentShare', { token }, teacher)).ok).toBe(true);
     expect(
