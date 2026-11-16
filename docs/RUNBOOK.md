@@ -70,7 +70,21 @@
 - 生徒: ログイン画面のクラス変更で旧年度のクラス ID + 当時の ID・パスワードでログイン (読み取り専用)
 
 ### プライバシーポリシーの更新
-- `src/components/PrivacyPolicy.tsx` の「最終更新日」等を編集して GitHub で main にマージすると反映されます
+運用責任者・連絡先・最終更新日はコードを触らずに変えられます。
+
+1. GitHub リポジトリの **Settings → Secrets and variables → Actions → Variables タブ**
+2. 「New repository variable」で次の 3 つを登録 (必要なものだけで OK)
+
+   | Name | 例 |
+   |------|----|
+   | `POLICY_OPERATOR` | ○○小学校 3 年 1 組担任 |
+   | `POLICY_CONTACT` | 学校代表電話 000-000-0000 |
+   | `POLICY_UPDATED` | 2027年4月1日 |
+
+3. Actions タブ → 「Deploy to Firebase」 → 「Run workflow」で再デプロイすると反映されます
+
+未登録の項目は「担任の先生」を案内する既定の文言になります。
+本文そのものを変えたいときは `src/components/PrivacyPolicy.tsx` を編集して main にマージします。
 
 ---
 

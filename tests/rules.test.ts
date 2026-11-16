@@ -765,6 +765,23 @@ describe('archived class freeze (classes/{classId}.archived)', () => {
   });
 });
 
+describe('server-side cache (classes/{classId}/cache)', () => {
+  it('no client can read or write the class averages cache, not even a teacher', async () => {
+    await seedTeacher('teacher-1');
+    await env.withSecurityRulesDisabled(async (ctx) => {
+      await setDoc(doc(ctx.firestore(), 'classes', CLASS_ID, 'cache', 'averages'), {
+        averages: [],
+        computedAt: 0,
+      });
+    });
+    const fs = asUser('teacher-1');
+    await assertFails(getDoc(doc(fs, 'classes', CLASS_ID, 'cache', 'averages')));
+    await assertFails(
+      setDoc(doc(fs, 'classes', CLASS_ID, 'cache', 'averages'), { averages: [], computedAt: 1 })
+    );
+  });
+});
+
 describe('parent share snapshots (shares/{token})', () => {
   const seedShare = async (token: string, expiresAt: Date) => {
     await env.withSecurityRulesDisabled(async (ctx) => {

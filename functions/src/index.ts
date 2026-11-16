@@ -684,6 +684,8 @@ export const getStorageUsage = onCall<UsageData>(
   return { totalBytes, photoCount, computedAt: Date.now() };
 });
 
+const CLASS_AVERAGES_TTL_MS = 10 * 60 * 1000;
+
 interface ClassAveragesData {
   classId: string;
 }
@@ -733,12 +735,26 @@ export const getClassAverages = onCall<ClassAveragesData>(
     );
   }
 
+  // クラス全員の全記録を読む集計は重い (30 人 × 60 日で約 1800 件) ので、結果を
+  // 10 分間サーバ側に置いて使い回す。端末側にも 5 分のキャッシュがあるが、それだけだと
+  // 30 人が同じ授業中にトグルを入れるたびに同じ集計を 30 回やり直すことになる。
+  // cache/ 以下はクライアントからは読めない (Rules の既定拒否)。
+  const cacheRef = classRef.collection('cache').doc('averages');
+  const cached = (await cacheRef.get()).data() as
+    | { averages: unknown[]; computedAt: number }
+    | undefined;
+  if (cached && Date.now() - cached.computedAt < CLASS_AVERAGES_TTL_MS) {
+    return { averages: cached.averages, computedAt: cached.computedAt };
+  }
+
   // 全生徒の全 records を走査して、日付別に値を蓄積
   const studentsSnap = await classRef.collection('students').get();
   const accumulator = new Map<string, { heights: number[]; leafCounts: number[] }>();
 
-  for (const studentDoc of studentsSnap.docs) {
-    const recordsSnap = await studentDoc.ref.collection('records').get();
+  const recordSnaps = await Promise.all(
+    studentsSnap.docs.map((studentDoc) => studentDoc.ref.collection('records').get())
+  );
+  for (const recordsSnap of recordSnaps) {
     for (const recordDoc of recordsSnap.docs) {
       const data = recordDoc.data();
       const date = typeof data.date === 'string' ? data.date : recordDoc.id;
@@ -783,7 +799,14 @@ export const getClassAverages = onCall<ClassAveragesData>(
   logger.info(
     `Class averages computed: classId=${classId} days=${averages.length} by=${callerUid}`
   );
-  return { averages, computedAt: Date.now() };
+  const computedAt = Date.now();
+  try {
+    await cacheRef.set({ averages, computedAt });
+  } catch (e) {
+    // キャッシュに書けなくても集計結果は返せる
+    logger.warn(`class averages cache write failed: ${(e as Error).message}`);
+  }
+  return { averages, computedAt };
 });
 
 interface TeacherRoleData {

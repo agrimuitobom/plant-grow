@@ -5,6 +5,7 @@ import CategoryManager from './components/CategoryManager';
 import DatePickerCard from './components/DatePickerCard';
 import ExportCsvButton from './components/ExportCsvButton';
 import FirstTeacherBanner from './components/FirstTeacherBanner';
+import ChangePasswordPanel from './components/ChangePasswordPanel';
 import OnboardingTour from './components/OnboardingTour';
 import RecordForm from './components/RecordForm';
 import RecordsList from './components/RecordsList';
@@ -94,6 +95,7 @@ export default function App() {
       return false; // private mode 等では毎回出すより出さない方が邪魔にならない
     }
   });
+  const [changingPassword, setChangingPassword] = useState(false);
   const closeTour = () => {
     setShowTour(false);
     try {
@@ -578,12 +580,26 @@ export default function App() {
           >
             ❓ 使い方を見る
           </button>
+          <button
+            type="button"
+            onClick={() => setChangingPassword(true)}
+            className="underline hover:text-leaf-700"
+          >
+            🔑 パスワードを変える
+          </button>
         </p>
       </footer>
 
       {/* 使い方ツアー: 教員モード表示中は出さない (生徒向けの説明のため)。
           初回だけ自動表示、以降はフッターの「使い方を見る」から。 */}
       {showTour && !showTeacherView && <OnboardingTour onClose={closeTour} />}
+
+      {changingPassword && (
+        <ChangePasswordPanel
+          onClose={() => setChangingPassword(false)}
+          onChanged={() => setToast({ tone: 'success', message: 'パスワードを変更しました ✓' })}
+        />
+      )}
 
       {/* 未読コメントのフローティングバッジ。生徒モード時のみ、未読 > 0 の時だけ表示。
           タップでコメント欄へスムーズスクロール + 楽観的に既読化 (UI は即座に消える)。 */}

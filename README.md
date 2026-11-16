@@ -384,6 +384,12 @@ npm test
 # Firestore Rules テスト (要 Firestore Emulator + Java 17+)
 # 実行時に自動でエミュレータを起動・停止する
 npm run test:rules
+
+# Cloud Functions の結合テスト (Functions / Auth / Firestore Emulator で実際に関数を呼ぶ)
+npm run test:functions
+
+# E2E (実ブラウザ + Emulator)
+npm run test:e2e
 ```
 
 ### CI で自動実行
@@ -392,7 +398,7 @@ GitHub Actions ワークフロー 2 本でカバーしている:
 
 | ワークフロー | トリガ | 実行内容 |
 |-------------|-------|---------|
-| `.github/workflows/test.yml` | PR (→ main) / main 以外への push | typecheck + 単体テスト + Rules テスト + functions ビルド |
+| `.github/workflows/test.yml` | PR (→ main) / main 以外への push | typecheck + 単体テスト + Rules テスト + Functions 結合テスト + E2E |
 | `.github/workflows/deploy.yml` | main への push | typecheck + 単体テスト + Hosting / Rules / Functions デプロイ |
 
 ### Branch Protection 推奨設定

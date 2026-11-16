@@ -1,12 +1,15 @@
 import { initializeApp } from 'firebase/app';
 import {
   type User,
+  EmailAuthProvider,
   connectAuthEmulator,
   createUserWithEmailAndPassword,
   getAuth,
   onAuthStateChanged,
+  reauthenticateWithCredential,
   signInWithEmailAndPassword,
   signOut,
+  updatePassword,
   updateProfile,
 } from 'firebase/auth';
 import {
@@ -143,6 +146,44 @@ export async function signUpWithIdPassword(args: {
     await credential.user.reload();
   }
   return credential;
+}
+
+/**
+ * ログイン中の本人がパスワードを変更する。
+ *
+ * Firebase はパスワード変更に「最近ログインしたこと」を要求するので、
+ * 現在のパスワードで再認証してから更新する (席を離れた隙に他人が変える、も防げる)。
+ */
+export async function changeOwnPassword(
+  currentPassword: string,
+  newPassword: string
+): Promise<void> {
+  const user = auth.currentUser;
+  if (!user?.email) throw new Error('ログインが切れています。もう一度ログインしてください。');
+  await reauthenticateWithCredential(
+    user,
+    EmailAuthProvider.credential(user.email, currentPassword)
+  );
+  await updatePassword(user, newPassword);
+}
+
+/** changeOwnPassword のエラーを利用者向けの文言にする。 */
+export function translatePasswordChangeError(err: unknown): string {
+  const code = (err as { code?: string } | undefined)?.code;
+  switch (code) {
+    case 'auth/wrong-password':
+    case 'auth/invalid-credential':
+    case 'auth/invalid-login-credentials':
+      return '今のパスワードが違います。';
+    case 'auth/weak-password':
+      return '新しいパスワードは 6 文字以上にしてください。';
+    case 'auth/too-many-requests':
+      return '何度も失敗したため一時的に制限されています。しばらく待ってからやり直してください。';
+    case 'auth/network-request-failed':
+      return 'オフラインでは変更できません。ネットにつながる場所でやり直してください。';
+    default:
+      return err instanceof Error ? err.message : String(err);
+  }
 }
 
 export function signOutUser() {

@@ -3,12 +3,17 @@ type Props = {
   showBackLink?: boolean;
 };
 
-/**
- * 学校向けプライバシーポリシー (テンプレート)。
- *
- * 【学校で運用開始する前に必ず編集してください】の箇所は校内の実情に合わせて
- * 書き換える前提です。法務確認・保護者周知が必要な箇所がある場合は学校事務局と相談を。
- */
+// 学校ごとに違う 3 項目。GitHub の Settings → Secrets and variables → Actions → Variables に
+// POLICY_OPERATOR / POLICY_CONTACT / POLICY_UPDATED を登録するとビルド時に差し込まれる
+// (docs/RUNBOOK.md 参照)。未登録でも読者に意味の通る既定の文言を出し、
+// 編集用の目印がそのまま公開ページに出ることがないようにする。
+const env = import.meta.env;
+const OPERATOR: string = env.VITE_POLICY_OPERATOR || 'このクラスの担任の先生';
+const CONTACT: string = env.VITE_POLICY_CONTACT || '担任の先生に直接お伝えください';
+// 既定値は、この文面を最後に改めた日。
+const UPDATED: string = env.VITE_POLICY_UPDATED || '2026年11月16日';
+
+/** 学校向けプライバシーポリシー。 */
 export default function PrivacyPolicy({ showBackLink = false }: Props) {
   return (
     <div className="min-h-screen px-4 py-6 md:px-8 md:py-10">
@@ -16,7 +21,7 @@ export default function PrivacyPolicy({ showBackLink = false }: Props) {
         <header className="mb-6">
           <h1 className="text-3xl font-bold text-leaf-700">プライバシーポリシー</h1>
           <p className="mt-2 text-sm text-slate-500">
-            最終更新日: 【学校で運用開始する前に必ず編集してください】
+            最終更新日: {UPDATED}
           </p>
         </header>
 
@@ -103,21 +108,15 @@ export default function PrivacyPolicy({ showBackLink = false }: Props) {
             担任の先生または以下の連絡先までご連絡ください。
           </p>
           <p>
-            <strong>運用責任者: 【学校で運用開始する前に必ず編集してください】</strong>
+            <strong>運用責任者: {OPERATOR}</strong>
             <br />
-            連絡先: 【学校で運用開始する前に必ず編集してください (例: メール・電話)】
+            連絡先: {CONTACT}
           </p>
 
           <h2 className="mt-6 text-xl font-bold text-leaf-700">7. このポリシーの変更</h2>
           <p>
             内容を変更する場合は、本ページの「最終更新日」を更新し、
             必要に応じて校内通知で周知します。
-          </p>
-
-          <hr className="my-6" />
-          <p className="text-xs text-slate-500">
-            このポリシーは学校用テンプレートです。校内の実情・法務確認に合わせて
-            運用開始前に【学校で運用開始する前に必ず編集してください】の箇所を書き換えてください。
           </p>
         </section>
 
