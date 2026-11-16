@@ -35,6 +35,10 @@ jobs:
           VITE_FIREBASE_APP_ID: ${{ secrets.VITE_FIREBASE_APP_ID }}
           # 任意。Secrets に登録されていなければ空文字 → クライアント側の Sentry 初期化が no-op。
           VITE_SENTRY_DSN: ${{ secrets.VITE_SENTRY_DSN }}
+          # 任意。プライバシーポリシーに表示する学校固有の項目 (Variables に登録、未登録なら既定の文言)。
+          VITE_POLICY_OPERATOR: ${{ vars.POLICY_OPERATOR }}
+          VITE_POLICY_CONTACT: ${{ vars.POLICY_CONTACT }}
+          VITE_POLICY_UPDATED: ${{ vars.POLICY_UPDATED }}
         run: npm run build
 
       - name: Deploy Hosting
