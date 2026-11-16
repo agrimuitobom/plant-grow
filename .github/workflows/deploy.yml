@@ -11,7 +11,7 @@ jobs:
     steps:
       - uses: actions/checkout@v4
 
-      - uses: actions/setup-node@v4
+      - uses: actions/setup-node@v6
         with:
           node-version: 22
           cache: npm
@@ -45,12 +45,19 @@ jobs:
           channelId: live
           projectId: plant-research-b106b
 
-      - name: Deploy Firestore & Storage rules
-        uses: w9jds/firebase-action@v13.23.1
-        with:
-          args: deploy --only firestore:rules,storage --project plant-research-b106b
+      # Rules / Functions のデプロイはリポジトリ自身の firebase-tools (devDependency) を
+      # ランナーの Node 22 で実行する。firebase-admin 14 は Node 22 以上が必須で、
+      # 関数コードはデプロイ時にも読み込まれるため、Node のバージョンを自分で決められない
+      # 外部の Docker アクションには任せない。鍵はこのジョブの一時ディレクトリにだけ置く。
+      - name: Set up service account credentials
         env:
-          GCP_SA_KEY: ${{ secrets.FIREBASE_SERVICE_ACCOUNT_PLANT_RESEARCH_B106B }}
+          SA_JSON: ${{ secrets.FIREBASE_SERVICE_ACCOUNT_PLANT_RESEARCH_B106B }}
+        run: |
+          printf '%s' "$SA_JSON" > "$RUNNER_TEMP/gcp-sa.json"
+          echo "GOOGLE_APPLICATION_CREDENTIALS=$RUNNER_TEMP/gcp-sa.json" >> "$GITHUB_ENV"
+
+      - name: Deploy Firestore & Storage rules
+        run: npx firebase deploy --only firestore:rules,storage --project plant-research-b106b --non-interactive
 
       # Cloud Functions のデプロイ。
       # - functions/package.json と src/ の変更が含まれていない時もこのステップは走るが、
@@ -63,8 +70,8 @@ jobs:
         working-directory: functions
 
       - name: Deploy Cloud Functions
-        uses: w9jds/firebase-action@v13.23.1
-        with:
-          args: deploy --only functions --project plant-research-b106b --force
-        env:
-          GCP_SA_KEY: ${{ secrets.FIREBASE_SERVICE_ACCOUNT_PLANT_RESEARCH_B106B }}
+        run: npx firebase deploy --only functions --project plant-research-b106b --force --non-interactive
+
+      - name: Remove service account credentials
+        if: always()
+        run: rm -f "$RUNNER_TEMP/gcp-sa.json"

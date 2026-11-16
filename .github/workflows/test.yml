@@ -13,13 +13,13 @@ jobs:
     steps:
       - uses: actions/checkout@v4
 
-      - uses: actions/setup-node@v4
+      - uses: actions/setup-node@v6
         with:
           node-version: 22
           cache: npm
 
       # Firestore Emulator の実行に Java ランタイムが必要。
-      - uses: actions/setup-java@v4
+      - uses: actions/setup-java@v5
         with:
           distribution: temurin
           java-version: '21'
@@ -42,9 +42,11 @@ jobs:
         run: npm ci
         working-directory: functions
 
-      - name: Functions build (typecheck)
-        run: npm run build
-        working-directory: functions
+      # Functions の結合テスト: Functions / Auth / Firestore エミュレータに対して
+      # ID トークン付きで本物の callable を呼ぶ (内部で functions/ のビルドも行う)。
+      # firebase-admin などのメジャー更新が実行時に壊れていないかはここで分かる。
+      - name: Cloud Functions integration tests
+        run: npm run test:functions
 
       # E2E: Auth/Firestore/Storage エミュレータ + 実ブラウザで
       # 「初回登録 → 記録保存 → 一覧反映」のゴールデンパスを検証。
@@ -57,7 +59,7 @@ jobs:
 
       - name: Upload Playwright traces on failure
         if: failure()
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@v7
         with:
           name: playwright-traces
           path: test-results/
